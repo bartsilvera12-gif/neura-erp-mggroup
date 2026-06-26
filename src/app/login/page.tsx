@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { signIn } from "@/lib/auth";
+import { getSingleClientName } from "@/lib/instance/single-client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -45,9 +46,11 @@ export default function LoginPage() {
     <div className="zentra-login-bg flex min-h-dvh w-full flex-col items-center justify-center overflow-x-hidden overflow-y-auto px-4 py-5 md:h-dvh md:overflow-y-hidden md:py-6">
       <div className="flex w-full max-w-[22rem] shrink-0 flex-col items-center gap-3 sm:max-w-sm sm:gap-4">
         <div className="w-full max-w-[13.5rem] shrink-0 sm:max-w-[15rem]">
+          {/* Logo definitivo MG GROUP pendiente (PASO branding). Por ahora se reutiliza el
+              asset existente; el alt usa el nombre comercial del cliente (NEURA_CLIENT_NAME). */}
           <Image
             src="/brand/zentra-logo-official.png"
-            alt="ZENTRA"
+            alt={getSingleClientName()}
             width={480}
             height={264}
             priority

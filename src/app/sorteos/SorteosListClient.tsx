@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { getSorteos } from "@/lib/sorteos/actions";
 import type { SorteosVentasKpis } from "@/lib/sorteos/ventas-kpis";
 import type { Sorteo } from "@/lib/sorteos/types";
+import { isSorteosClientSchema } from "@/lib/sorteos/sorteos-feature-clients";
 
 function formatGs(n: number) {
   const s = Math.round(n).toLocaleString("es-PY", { maximumFractionDigits: 0 });
@@ -358,9 +359,9 @@ export default function SorteosListClient({ ventasKpis }: { ventasKpis: SorteosV
                       </td>
                       <td className="px-5 py-3 text-right">
                         <div className="inline-flex items-center justify-end gap-2">
-                          {/* Finalizar: tenant-only El Papu Store. Otros clientes no se tocan. */}
+                          {/* Finalizar: solo clientes de Sorteos (ver isSorteosClientSchema). Otros no se tocan. */}
                           {s.estado === "activo" &&
-                          process.env.NEXT_PUBLIC_NEURA_CLIENT_SCHEMA === "elpapustore_erp" ? (
+                          isSorteosClientSchema(process.env.NEXT_PUBLIC_NEURA_CLIENT_SCHEMA) ? (
                             <button
                               type="button"
                               onClick={() => finalizarSorteo(s.id)}

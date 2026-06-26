@@ -49,14 +49,29 @@ const ENABLED_TENANTS: Array<{ empresa_id: string; schema: string }> = [
  * Lista efectiva de tenants a procesar.
  *
  * - single_client (NEURA_INSTANCE_MODE=single_client): el schema operativo es
- *   NEURA_CLIENT_SCHEMA (p.ej. `elpapustore_erp`), NO el schema Cloud histórico.
- *   El `empresa_id` NO cambia entre Cloud y self-hosted, así que se conserva.
+ *   NEURA_CLIENT_SCHEMA (p.ej. `elpapustore_erp` o `mggroup`), NO el schema Cloud histórico.
+ *   El `empresa_id` correcto se inyecta por env `NEURA_CLIENT_EMPRESA_ID`.
+ *     · Si `NEURA_CLIENT_EMPRESA_ID` está seteada → se usa ese empresa_id (cualquier cliente).
+ *     · Si NO está y el schema es el legacy `elpapustore_erp` → back-compat: se conserva el
+ *       empresa_id histórico de El Papu (coincide entre Cloud y self-hosted).
+ *     · Si NO está y es otro cliente (p.ej. `mggroup`, aún sin empresa_id) → lista vacía:
+ *       el cron NO procesa nada, para nunca operar sobre la empresa equivocada.
+ *       PENDIENTE PASO 4/5: setear `NEURA_CLIENT_EMPRESA_ID` con el empresa_id real de MG GROUP.
  * - multi_tenant: se mantiene la lista legacy sin cambios (no rompe otros clientes).
  */
 function resolveEnabledTenants(): Array<{ empresa_id: string; schema: string }> {
   const singleSchema = getSingleClientSchemaOrNull();
   if (singleSchema) {
-    return ENABLED_TENANTS.map((t) => ({ ...t, schema: singleSchema }));
+    const envEmpresaId = process.env.NEURA_CLIENT_EMPRESA_ID?.trim();
+    if (envEmpresaId) {
+      return [{ empresa_id: envEmpresaId, schema: singleSchema }];
+    }
+    // Back-compat: solo El Papu Store puede usar el empresa_id legacy hardcodeado.
+    if (singleSchema === "elpapustore_erp") {
+      return ENABLED_TENANTS.map((t) => ({ ...t, schema: singleSchema }));
+    }
+    // Otro cliente single_client sin empresa_id explícito: no procesar (seguro).
+    return [];
   }
   return ENABLED_TENANTS;
 }

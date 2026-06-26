@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# Plantilla sin secretos: SÍ se versiona (los `.env*` reales siguen ignorados).
+!.env.example
 
 # vercel
 .vercel

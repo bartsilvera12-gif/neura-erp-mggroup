@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { isSorteosClientSchema } from "@/lib/sorteos/sorteos-feature-clients";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -180,14 +181,13 @@ const MENU_STRUCTURE: MenuItem[] = [
     label: "Sorteos",
     href: "/sorteos",
     icon: Ticket,
-    // El Papu Store (single_client elpapustore_erp): dentro de Sorteos ya existen las
-    // pestañas internas que llevan a Tickets/Comprobantes, así que se oculta el subitem
-    // duplicado del sidebar. Guarda tenant-only: otros clientes mantienen el subitem.
+    // Clientes de Sorteos (single_client, ver isSorteosClientSchema): dentro de Sorteos
+    // ya existen las pestañas internas que llevan a Tickets/Comprobantes, así que se oculta
+    // el subitem duplicado del sidebar. Otros clientes mantienen el subitem.
     // La ruta /sorteos/tickets sigue existiendo (no se rompe).
-    children:
-      process.env.NEXT_PUBLIC_NEURA_CLIENT_SCHEMA === "elpapustore_erp"
-        ? undefined
-        : [{ label: "Tickets / Comprobantes", href: "/sorteos/tickets", exactMatch: true }],
+    children: isSorteosClientSchema(process.env.NEXT_PUBLIC_NEURA_CLIENT_SCHEMA)
+      ? undefined
+      : [{ label: "Tickets / Comprobantes", href: "/sorteos/tickets", exactMatch: true }],
   },
   {
     key: "etiquetas",
