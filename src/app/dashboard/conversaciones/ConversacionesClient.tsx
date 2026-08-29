@@ -63,6 +63,7 @@ import type { OmnicanalOperatorRole } from "@/lib/chat/omnicanal-supervision-rea
 import { playInboxNotificationBeep, readInboxNotificationSoundEnabled } from "@/lib/chat/inbox-notification-preference";
 import { createBrowserClientForSchema } from "@/lib/supabase";
 import { ChannelBadge } from "@/components/chat/ChannelBadge";
+import { SIMPLE_INBOX_UI } from "@/lib/instance/inbox-simplify";
 
 type ChatMessage = {
   id: string;
@@ -2359,7 +2360,7 @@ export function ConversacionesClient({
         </div>
       ) : null}
 
-      {(mode === "historial" || vista === "inbox") ? (
+      {(!SIMPLE_INBOX_UI && (mode === "historial" || vista === "inbox")) ? (
         <div className="flex flex-wrap items-end gap-3 shrink-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <label className="flex flex-col gap-1.5 min-w-[12rem]">
             <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -2808,7 +2809,8 @@ export function ConversacionesClient({
                           </div>
                         </div>
 
-                        {/* Row 2: meta chips uniformes */}
+                        {/* Row 2: meta chips uniformes (oculta en inbox simplificado / sorteos) */}
+                        {!SIMPLE_INBOX_UI ? (
                         <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                           <ChannelBadge type={selected.channel.type} nombre={selected.channel.nombre} />
                           {vista === "bot" ? (
@@ -2921,6 +2923,7 @@ export function ConversacionesClient({
                             </>
                           ) : null}
                         </div>
+                        ) : null}
                       </div>
                     );
                   })()

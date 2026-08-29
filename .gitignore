@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Playwright E2E artefactos locales
 e2e-super-admin*.png
+
+# Provisioning local (dumps schema-only, SQL temporal de creación de schema) — NO subir
+tmp/
