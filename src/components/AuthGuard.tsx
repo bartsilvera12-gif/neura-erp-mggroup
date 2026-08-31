@@ -25,7 +25,13 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const [access, setAccess] = useState<ModuleAccess | null>(null);
 
   const isPublic = useMemo(
-    () => !!(pathname && PUBLIC_ROUTES.includes(pathname)),
+    () =>
+      !!(
+        pathname &&
+        (PUBLIC_ROUTES.includes(pathname) ||
+          pathname === "/rv" ||
+          pathname.startsWith("/rv/"))
+      ),
     [pathname]
   );
 

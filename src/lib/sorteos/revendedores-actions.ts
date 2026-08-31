@@ -11,6 +11,11 @@ export type SorteoRevendedorRow = {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  /** POS de revendedores: link mágico + cupo. */
+  access_token: string | null;
+  access_token_created_at: string | null;
+  access_revoked_at: string | null;
+  cupo_boletos: number | null;
 };
 
 function mapRev(r: Record<string, unknown>): SorteoRevendedorRow {
@@ -28,6 +33,11 @@ function mapRev(r: Record<string, unknown>): SorteoRevendedorRow {
         : {},
     created_at: (r.created_at as string) ?? "",
     updated_at: (r.updated_at as string) ?? "",
+    access_token: (r.access_token as string) ?? null,
+    access_token_created_at: (r.access_token_created_at as string) ?? null,
+    access_revoked_at: (r.access_revoked_at as string) ?? null,
+    cupo_boletos:
+      typeof r.cupo_boletos === "number" ? (r.cupo_boletos as number) : null,
   };
 }
 
@@ -152,4 +162,38 @@ export async function getRevendedorStats(revendedorId: string): Promise<Revended
     throw new Error(json.error || "Respuesta inválida");
   }
   return json.data;
+}
+
+/** Genera (o rota) el link mágico del revendedor. Devuelve el nuevo access_token. */
+export async function generateRevendedorAccessLink(
+  revendedorId: string
+): Promise<{ access_token: string; access_token_created_at: string | null }> {
+  const res = await fetchWithSupabaseSession(
+    `/api/sorteos/revendedores/${encodeURIComponent(revendedorId)}/access-link`,
+    { method: "POST" }
+  );
+  const json = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    data?: { access_token?: string; access_token_created_at?: string | null };
+    error?: string;
+  };
+  if (!res.ok || !json.success || !json.data?.access_token) {
+    throw new Error(json.error || `${res.status}`);
+  }
+  return {
+    access_token: json.data.access_token,
+    access_token_created_at: json.data.access_token_created_at ?? null,
+  };
+}
+
+/** Revoca el link mágico del revendedor (deja de funcionar). */
+export async function revokeRevendedorAccessLink(revendedorId: string): Promise<void> {
+  const res = await fetchWithSupabaseSession(
+    `/api/sorteos/revendedores/${encodeURIComponent(revendedorId)}/access-link`,
+    { method: "DELETE" }
+  );
+  const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `${res.status}`);
+  }
 }

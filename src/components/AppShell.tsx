@@ -6,9 +6,15 @@ import Header from "./layout/Header";
 
 const STANDALONE_ROUTES = ["/login"];
 
+/** POS de revendedores (link mágico) vive fuera del chrome del ERP. */
+function isRevendedorPos(pathname: string | null): boolean {
+  return !!pathname && (pathname === "/rv" || pathname.startsWith("/rv/"));
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isStandalone = pathname && STANDALONE_ROUTES.includes(pathname);
+  const isStandalone =
+    pathname && (STANDALONE_ROUTES.includes(pathname) || isRevendedorPos(pathname));
 
   if (isStandalone) {
     return <>{children}</>;

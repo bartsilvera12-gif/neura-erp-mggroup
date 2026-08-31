@@ -6,10 +6,16 @@ import { useMemo, useState } from "react";
 import type { SorteoRevendedorRow } from "@/lib/sorteos/revendedores-actions";
 import {
   createRevendedor,
+  generateRevendedorAccessLink,
   getRevendedorStats,
+  revokeRevendedorAccessLink,
   setRevendedorActivo,
   type RevendedorStats,
 } from "@/lib/sorteos/revendedores-actions";
+
+function posLink(baseUrl: string, token: string): string {
+  return `${baseUrl.replace(/\/+$/, "")}/rv/${encodeURIComponent(token)}`;
+}
 
 function publicReferralLink(baseUrl: string, codigo: string, sorteoId: string): string {
   const origin = baseUrl.replace(/\/$/, "");
@@ -36,6 +42,8 @@ export default function SorteoRevendedoresClient(props: {
   const [err, setErr] = useState<string | null>(null);
   const [statsById, setStatsById] = useState<Record<string, RevendedorStats>>({});
   const [loadingStats, setLoadingStats] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const hintPhone = useMemo(() => {
     return (
@@ -95,6 +103,44 @@ export default function SorteoRevendedoresClient(props: {
       await refresh();
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Error");
+    }
+  }
+
+  async function handleGenerateLink(r: SorteoRevendedorRow) {
+    setErr(null);
+    setLinkBusy(r.id);
+    try {
+      await generateRevendedorAccessLink(r.id);
+      await refresh();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Error al generar el link");
+    } finally {
+      setLinkBusy(null);
+    }
+  }
+
+  async function handleRevokeLink(r: SorteoRevendedorRow) {
+    if (!window.confirm(`¿Revocar el link de ${r.nombre}? Dejará de funcionar de inmediato.`)) return;
+    setErr(null);
+    setLinkBusy(r.id);
+    try {
+      await revokeRevendedorAccessLink(r.id);
+      await refresh();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Error al revocar el link");
+    } finally {
+      setLinkBusy(null);
+    }
+  }
+
+  async function copyPosLink(r: SorteoRevendedorRow) {
+    if (!r.access_token || props.baseUrl.trim() === "") return;
+    try {
+      await navigator.clipboard.writeText(posLink(props.baseUrl, r.access_token));
+      setCopiedId(r.id);
+      window.setTimeout(() => setCopiedId((c) => (c === r.id ? null : c)), 1500);
+    } catch {
+      /* clipboard no disponible */
     }
   }
 
@@ -230,6 +276,66 @@ export default function SorteoRevendedoresClient(props: {
                         <span className="text-xs text-slate-400">QR disponible con URL base pública</span>
                       )}
                     </div>
+                  </div>
+                  <div className="border-t border-slate-100 pt-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-slate-700">Link POS del revendedor</span>
+                      {r.access_token && !r.access_revoked_at ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          activo
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                          sin link
+                        </span>
+                      )}
+                    </div>
+                    {r.access_token && !r.access_revoked_at ? (
+                      <div className="mt-2 space-y-2">
+                        {props.baseUrl.trim() !== "" ? (
+                          <div className="break-all text-[11px] font-mono text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+                            {posLink(props.baseUrl, r.access_token)}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-slate-400">(configurá el dominio público para ver el link)</div>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void copyPosLink(r)}
+                            disabled={props.baseUrl.trim() === ""}
+                            className="text-xs bg-[#4FAEB2] hover:bg-[#3F8E91] disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium"
+                          >
+                            {copiedId === r.id ? "¡Copiado!" : "Copiar link"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleGenerateLink(r)}
+                            disabled={linkBusy === r.id}
+                            className="text-xs border border-slate-200 hover:border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg disabled:opacity-50"
+                          >
+                            {linkBusy === r.id ? "…" : "Rotar"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleRevokeLink(r)}
+                            disabled={linkBusy === r.id}
+                            className="text-xs text-red-600 hover:text-red-700 px-3 py-1.5 rounded-lg disabled:opacity-50"
+                          >
+                            Revocar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleGenerateLink(r)}
+                        disabled={linkBusy === r.id}
+                        className="mt-2 text-xs bg-[#4FAEB2] hover:bg-[#3F8E91] disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium"
+                      >
+                        {linkBusy === r.id ? "Generando…" : "Generar link POS"}
+                      </button>
+                    )}
                   </div>
                   <div className="border-t border-slate-100 pt-2">
                     <button
