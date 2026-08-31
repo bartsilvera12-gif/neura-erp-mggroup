@@ -46,6 +46,17 @@ export type SorteoManualCashInput = {
   montoTotal: number;
   observacionInterna?: string | null;
   validadoPorUserId?: string | null;
+  /** --- Atribución a revendedor (POS de revendedores) --- */
+  revendedorId?: string | null;
+  codigoReferidoSnapshot?: string | null;
+  /** Forma de pago: "efectivo" (default, confirmado) o "transferencia" (pendiente_revision + comprobante). */
+  pagoMetodo?: "efectivo" | "transferencia";
+  comprobanteUrl?: string | null;
+  bancoOrigen?: string | null;
+  /** Overrides de trazabilidad; default "erp_manual" / "local" / "erp_manual_presencial". */
+  ventaOrigen?: string | null;
+  ventaCanal?: string | null;
+  validadoPor?: string | null;
 };
 
 export type SorteoManualCashFail = { ok: false; message: string };
@@ -258,6 +269,12 @@ export async function createSorteoManualCashSaleViaDirectPostgres(
     const ultCupon = Number(s.ultimo_numero_cupon);
     const nowIso = new Date().toISOString();
 
+    // Forma de pago: efectivo (default, confirmado en el acto) o transferencia (pendiente_revision).
+    const esTransferencia = input.pagoMetodo === "transferencia";
+    const estadoPago = esTransferencia ? "pendiente_revision" : "confirmado";
+    const comprobanteUrl = esTransferencia ? input.comprobanteUrl?.trim() || null : null;
+    const bancoOrigen = esTransferencia ? input.bancoOrigen?.trim() || null : "EFECTIVO";
+
     const rowEnt: Record<string, unknown> = {
       empresa_id: input.empresaId,
       sorteo_id: input.sorteoId,
@@ -269,12 +286,12 @@ export async function createSorteoManualCashSaleViaDirectPostgres(
       cantidad_boletos: qty,
       monto_total: montoRounded,
       moneda: "PYG",
-      estado_pago: "confirmado",
-      fecha_pago: nowIso,
-      monto_pagado: montoRounded,
-      banco_origen: "EFECTIVO",
-      comprobante_url: null,
-      validado_por: "erp_manual_presencial",
+      estado_pago: estadoPago,
+      fecha_pago: esTransferencia ? null : nowIso,
+      monto_pagado: esTransferencia ? null : montoRounded,
+      banco_origen: bancoOrigen,
+      comprobante_url: comprobanteUrl,
+      validado_por: input.validadoPor?.trim() || "erp_manual_presencial",
       numero_orden: numeroOrden,
       chat_conversation_id: null,
       flow_code: null,
@@ -284,7 +301,8 @@ export async function createSorteoManualCashSaleViaDirectPostgres(
       precio_regular_referencia: precioRegularRef,
     };
 
-    if (entCols.has("validado_at")) {
+    // Solo marcamos validado_at cuando la venta ya queda confirmada (efectivo).
+    if (entCols.has("validado_at") && !esTransferencia) {
       rowEnt.validado_at = nowIso;
     }
     if (entCols.has("validado_por_user_id") && input.validadoPorUserId?.trim()) {
@@ -295,13 +313,19 @@ export async function createSorteoManualCashSaleViaDirectPostgres(
       rowEnt.observacion_interna = note.length > 0 ? note : null;
     }
     if (entCols.has("venta_origen")) {
-      rowEnt.venta_origen = "erp_manual";
+      rowEnt.venta_origen = input.ventaOrigen?.trim() || "erp_manual";
     }
     if (entCols.has("venta_canal")) {
-      rowEnt.venta_canal = "local";
+      rowEnt.venta_canal = input.ventaCanal?.trim() || "local";
     }
     if (entCols.has("pago_metodo")) {
-      rowEnt.pago_metodo = "efectivo";
+      rowEnt.pago_metodo = esTransferencia ? "transferencia" : "efectivo";
+    }
+    if (entCols.has("revendedor_id") && input.revendedorId?.trim()) {
+      rowEnt.revendedor_id = input.revendedorId.trim();
+    }
+    if (entCols.has("codigo_referido_snapshot") && input.codigoReferidoSnapshot?.trim()) {
+      rowEnt.codigo_referido_snapshot = input.codigoReferidoSnapshot.trim();
     }
 
     const insertCols = Object.keys(rowEnt).filter((k) => entCols.has(k));
