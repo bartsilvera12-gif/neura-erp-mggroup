@@ -13,14 +13,15 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const origin = new URL(request.url).origin;
   const ctx = await resolveRevendedorByAccessToken(token);
 
+  // Redirect RELATIVO: detrás del proxy, request.url tiene el host interno (localhost).
+  // Un Location relativo lo resuelve el browser contra el origin público real.
   if (!ctx) {
-    return NextResponse.redirect(new URL("/rv/invalido", origin));
+    return new NextResponse(null, { status: 303, headers: { Location: "/rv/invalido" } });
   }
 
-  const res = NextResponse.redirect(new URL("/rv", origin));
+  const res = new NextResponse(null, { status: 303, headers: { Location: "/rv" } });
   res.cookies.set(REVENDEDOR_COOKIE, token.trim(), {
     httpOnly: true,
     secure: true,

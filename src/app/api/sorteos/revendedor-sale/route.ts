@@ -86,8 +86,8 @@ export async function POST(request: NextRequest) {
       montoTotal: monto,
       revendedorId: ctx.revendedorId,
       pagoMetodo,
-      ventaOrigen: "revendedor",
-      ventaCanal: "revendedor_pos",
+      // venta_origen/venta_canal tienen CHECK (erp_manual|whatsapp_flow / local|remote):
+      // la venta del revendedor se identifica por revendedor_id + validado_por.
       validadoPor: pagoMetodo === "efectivo" ? "revendedor_efectivo" : "revendedor_transferencia",
     });
 
