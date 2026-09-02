@@ -55,7 +55,7 @@ function dataUrlFromBuffer(buf: Buffer, mime: string): string {
   return `data:${mime};base64,${b64}`;
 }
 
-/** Trunca con «…» para que un valor largo (nombre del sorteo) no se salga de la tarjeta. */
+/** Trunca con «…» para que un valor largo no se salga de su columna. */
 function truncateToWidth(text: string, fontSize: number, weight: number, maxWidth: number): string {
   const t = text.replace(/\s+/g, " ").trim();
   if (!t) return "";
@@ -70,97 +70,104 @@ function truncateToWidth(text: string, fontSize: number, weight: number, maxWidt
   return `${t.slice(0, lo).trim()}…`;
 }
 
-/**
- * Bloque de cupones: rótulo + números, centrados, dentro del alto disponible.
- * Devuelve también el alto usado para poder ubicar el QR debajo sin superponerse.
- */
-function cuponesBlockSvg(opts: {
+/** Parte el texto en líneas por palabra; la última se trunca si no entra. */
+function wrapToWidth(
+  text: string,
+  fontSize: number,
+  weight: number,
+  maxWidth: number,
+  maxLines: number
+): string[] {
+  const palabras = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  if (palabras.length === 0) return [];
+  const lineas: string[] = [];
+  let actual = "";
+  for (const palabra of palabras) {
+    const tentativa = actual ? `${actual} ${palabra}` : palabra;
+    if (measureTicketTextWidth(tentativa, fontSize, weight) <= maxWidth) {
+      actual = tentativa;
+      continue;
+    }
+    if (actual) lineas.push(actual);
+    actual = palabra;
+    if (lineas.length === maxLines - 1) break;
+  }
+  const restante = palabras.slice(lineas.join(" ").split(" ").filter(Boolean).length).join(" ");
+  lineas.push(truncateToWidth(restante || actual, fontSize, weight, maxWidth));
+  return lineas.slice(0, maxLines);
+}
+
+/** Números de cupón dentro del talón, adaptados a cuántos son y al espacio disponible. */
+function cuponesStubSvg(opts: {
   cupones: string[];
   cx: number;
   top: number;
   maxWidth: number;
   maxHeight: number;
-  primary: string;
+  color: string;
   accent: string;
 }): { svg: string; height: number } {
-  const { cupones, cx, top, maxWidth, maxHeight, primary, accent } = opts;
+  const { cupones, cx, top, maxWidth, maxHeight, color, accent } = opts;
   if (cupones.length === 0) return { svg: "", height: 0 };
+  const pieces: string[] = [];
 
-  const LABEL_FS = 22;
-  const LABEL_GAP = 16;
-  const pieces: string[] = [
-    svgTextAsPath({
-      text: cupones.length === 1 ? "TU CUPÓN" : "TUS CUPONES",
-      x: cx,
-      y: top + LABEL_FS,
-      fontSize: LABEL_FS,
-      weight: 700,
-      fill: accent,
-      textAnchor: "middle",
-    }),
-  ];
-
-  const listTop = top + LABEL_FS + LABEL_GAP;
-  const available = Math.max(60, maxHeight - (LABEL_FS + LABEL_GAP));
-
-  /** Pocos cupones: lista vertical grande. Muchos: grilla de 3 columnas. */
-  if (cupones.length <= 6) {
-    let fs = 84;
-    while (fs > 30 && (cupones.length * fs * 1.22 > available || anyTooWide(cupones, fs, 800, maxWidth))) {
+  if (cupones.length <= 4) {
+    let fs = 76;
+    while (fs > 28 && (cupones.length * fs * 1.24 > maxHeight || anyTooWide(cupones, fs, 800, maxWidth))) {
       fs -= 4;
     }
-    const lineH = fs * 1.22;
-    let y = listTop;
+    const lineH = fs * 1.24;
+    let y = top;
     for (const c of cupones) {
       y += fs;
       pieces.push(
-        svgTextAsPath({ text: c, x: cx, y, fontSize: fs, weight: 800, fill: primary, textAnchor: "middle" })
+        svgTextAsPath({ text: c, x: cx, y, fontSize: fs, weight: 800, fill: color, textAnchor: "middle" })
       );
       y += lineH - fs;
     }
-    return { svg: pieces.filter(Boolean).join("\n"), height: y - top };
+    return { svg: pieces.filter(Boolean).join("\n"), height: cupones.length * lineH };
   }
 
-  const MAX_SHOW = 24;
+  const MAX_SHOW = 21;
   const list = cupones.slice(0, MAX_SHOW);
-  const cols = 3;
-  const rows = Math.ceil(list.length / cols);
+  const cols = cupones.length <= 8 ? 2 : 3;
+  const filas = Math.ceil(list.length / cols);
+  const hayResto = cupones.length > MAX_SHOW;
+  const restoH = hayResto ? 30 : 0;
   let fs = 34;
-  while (fs > 16 && rows * fs * 1.5 > available - 30) fs -= 2;
+  while (fs > 15 && filas * fs * 1.5 + restoH > maxHeight) fs -= 2;
   const rowH = fs * 1.5;
   const cellW = maxWidth / cols;
   const x0 = cx - maxWidth / 2 + cellW / 2;
+  const alto = filas * rowH + restoH;
+  const top0 = top;
   list.forEach((c, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
     pieces.push(
       svgTextAsPath({
         text: c,
-        x: x0 + col * cellW,
-        y: listTop + fs + row * rowH,
+        x: x0 + (i % cols) * cellW,
+        y: top0 + fs + Math.floor(i / cols) * rowH,
         fontSize: fs,
         weight: 700,
-        fill: primary,
+        fill: color,
         textAnchor: "middle",
       })
     );
   });
-  let height = LABEL_FS + LABEL_GAP + rows * rowH;
-  if (cupones.length > MAX_SHOW) {
+  if (hayResto) {
     pieces.push(
       svgTextAsPath({
-        text: `y ${cupones.length - MAX_SHOW} cupones más`,
+        text: `y ${cupones.length - MAX_SHOW} más`,
         x: cx,
-        y: top + height + 24,
-        fontSize: 20,
+        y: top0 + filas * rowH + 22,
+        fontSize: 19,
         weight: 600,
         fill: accent,
         textAnchor: "middle",
       })
     );
-    height += 32;
   }
-  return { svg: pieces.filter(Boolean).join("\n"), height };
+  return { svg: pieces.filter(Boolean).join("\n"), height: alto };
 }
 
 function anyTooWide(items: string[], fontSize: number, weight: number, maxWidth: number): boolean {
@@ -168,19 +175,18 @@ function anyTooWide(items: string[], fontSize: number, weight: number, maxWidth:
 }
 
 /**
- * Modo automático: banda superior oscura con el logo, tarjeta blanca con los datos,
- * cupones destacados y QR al pie.
+ * Modo automático: boleta con troquel.
  *
- * Todo se ubica con un cursor vertical y medidas reales de texto: antes las posiciones
- * eran offsets fijos y el título quedaba tapado por la tarjeta y el rótulo de cupones
- * se superponía con el primer número.
+ * Cabecera oscura con el logo, nombre del sorteo, tarjeta de datos, línea de corte
+ * con muescas y un talón oscuro donde el cupón y el QR son los protagonistas.
+ * Todo se ubica con medidas reales de texto, no con offsets fijos.
  */
 export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   const cfg = input.config;
-  const bg = (cfg.backgroundColor ?? "#eef2f6").trim();
-  const primary = (cfg.primaryColor ?? "#0f172a").trim();
-  const secondary = (cfg.secondaryColor ?? "#64748b").trim();
-  const accent = (cfg.primaryColor ?? "#b45309").trim();
+  const bg = (cfg.backgroundColor ?? "#eef1f5").trim();
+  const primary = (cfg.primaryColor ?? "#0d1424").trim();
+  const secondary = (cfg.secondaryColor ?? "#6b7787").trim();
+  const accent = (cfg.primaryColor ? (cfg.secondaryColor ?? "#d4a017") : "#d4a017").trim();
   const title = (cfg.title ?? "Comprobante de participación").trim();
   const footer = (cfg.legalFooter ?? "").trim();
 
@@ -194,188 +200,219 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
 
   const hasLogo = showLogo && Boolean(input.logoBytes && input.logoMime);
   const cx = WA / 2;
+  const innerW = WA - PAD * 2;
+  const parts: string[] = [`<rect width="${WA}" height="${HA}" fill="${bg}"/>`];
 
-  // ---- Banda superior (oscura): logo + empresa ----
-  const LOGO = 190;
-  const bandH = hasLogo ? 336 : 250;
-  const parts: string[] = [];
-
-  parts.push(`<rect width="${WA}" height="${HA}" fill="${bg}"/>`);
   if (input.backgroundBytes && input.backgroundMime) {
     const href = dataUrlFromBuffer(input.backgroundBytes, input.backgroundMime);
     parts.push(
-      `<image href="${href}" x="0" y="0" width="${WA}" height="${HA}" preserveAspectRatio="xMidYMid slice" opacity="0.10"/>`
+      `<image href="${href}" x="0" y="0" width="${WA}" height="${HA}" preserveAspectRatio="xMidYMid slice" opacity="0.08"/>`
     );
   }
-  parts.push(`<rect x="0" y="0" width="${WA}" height="${bandH}" fill="${primary}"/>`);
 
-  let y = PAD;
+  // ---------- Cabecera ----------
+  const LOGO = 200;
+  const bandH = hasLogo ? 356 : 262;
+  parts.push(`<rect x="0" y="0" width="${WA}" height="${bandH}" fill="${primary}"/>`);
+  parts.push(`<rect x="0" y="${bandH - 5}" width="${WA}" height="5" fill="${accent}"/>`);
+
+  let y = 46;
   if (hasLogo) {
     const href = dataUrlFromBuffer(input.logoBytes!, input.logoMime!);
     parts.push(
       `<image href="${href}" x="${cx - LOGO / 2}" y="${y}" width="${LOGO}" height="${LOGO}" preserveAspectRatio="xMidYMid meet"/>`
     );
-    y += LOGO + 30;
+    y += LOGO + 26;
   } else if (showLogo) {
-    const r = 56;
+    const r = 54;
     parts.push(`<circle cx="${cx}" cy="${y + r}" r="${r}" fill="#ffffff" opacity="0.10"/>`);
     parts.push(
       svgTextAsPath({
         text: initials(input.empresaNombre),
         x: cx,
-        y: y + r + 18,
-        fontSize: 48,
+        y: y + r + 17,
+        fontSize: 46,
         weight: 800,
         fill: "#ffffff",
         textAnchor: "middle",
       })
     );
-    y += r * 2 + 26;
+    y += r * 2 + 24;
   }
-
-  const empresaFs = 32;
   parts.push(
     svgTextAsPath({
-      text: truncateToWidth(input.empresaNombre, empresaFs, 800, WA - PAD * 2),
+      text: truncateToWidth(input.empresaNombre.toUpperCase(), 30, 800, innerW),
       x: cx,
-      y: y + empresaFs,
-      fontSize: empresaFs,
+      y: y + 30,
+      fontSize: 30,
       weight: 800,
       fill: "#ffffff",
       textAnchor: "middle",
-    })
-  );
-
-  // ---- Título, debajo de la banda ----
-  const titleFs = 36;
-  const titleBaseline = bandH + 58;
-  parts.push(
+    }),
     svgTextAsPath({
-      text: truncateToWidth(title, titleFs, 700, WA - PAD * 2),
+      text: truncateToWidth(title.toUpperCase(), 19, 600, innerW),
       x: cx,
-      y: titleBaseline,
-      fontSize: titleFs,
-      weight: 700,
-      fill: primary,
+      y: y + 30 + 34,
+      fontSize: 19,
+      weight: 600,
+      fill: accent,
       textAnchor: "middle",
     })
   );
 
-  // ---- Tarjeta de datos ----
-  const rows: { label: string; value: string; wide: boolean }[] = [];
-  if (showNombre && input.clienteNombre?.trim()) {
-    rows.push({ label: "Participante", value: input.clienteNombre.trim(), wide: true });
-  }
-  if (showDoc && input.documento?.trim()) rows.push({ label: "Documento", value: input.documento.trim(), wide: false });
-  if (showTel && input.telefono?.trim()) rows.push({ label: "Teléfono", value: input.telefono.trim(), wide: false });
-  if (showOrd && String(input.numeroOrden ?? "").trim()) {
-    rows.push({ label: "Nº de orden", value: String(input.numeroOrden).trim(), wide: false });
-  }
+  // ---------- Nombre del sorteo ----------
+  let cursor = bandH + 46;
   if (showSorteoNom && input.sorteoNombre?.trim()) {
-    rows.push({ label: "Sorteo", value: input.sorteoNombre.trim(), wide: true });
+    const lineas = wrapToWidth(input.sorteoNombre.trim(), 32, 800, innerW, 2);
+    for (const linea of lineas) {
+      parts.push(
+        svgTextAsPath({
+          text: linea,
+          x: cx,
+          y: cursor + 32,
+          fontSize: 32,
+          weight: 800,
+          fill: primary,
+          textAnchor: "middle",
+        })
+      );
+      cursor += 40;
+    }
+    cursor += 18;
   }
 
-  /** Los campos cortos van de a dos por línea: así la tarjeta ocupa menos y el cupón manda. */
-  const lines: (typeof rows)[] = [];
-  let pendiente: (typeof rows)[number] | null = null;
-  for (const row of rows) {
-    if (row.wide) {
-      if (pendiente) {
-        lines.push([pendiente]);
-        pendiente = null;
-      }
-      lines.push([row]);
-      continue;
-    }
-    if (pendiente) {
-      lines.push([pendiente, row]);
-      pendiente = null;
-    } else {
-      pendiente = row;
-    }
+  // ---------- Tarjeta de datos (dos columnas) ----------
+  const celdas: { label: string; value: string }[] = [];
+  if (showNombre && input.clienteNombre?.trim()) {
+    celdas.push({ label: "Participante", value: input.clienteNombre.trim() });
   }
-  if (pendiente) lines.push([pendiente]);
+  if (showOrd && String(input.numeroOrden ?? "").trim()) {
+    celdas.push({ label: "Nº de orden", value: String(input.numeroOrden).trim() });
+  }
+  if (showDoc && input.documento?.trim()) celdas.push({ label: "Documento", value: input.documento.trim() });
+  if (showTel && input.telefono?.trim()) celdas.push({ label: "Teléfono", value: input.telefono.trim() });
 
-  const cardX = PAD;
-  const cardW = WA - PAD * 2;
-  const cardTop = titleBaseline + 34;
-  const CARD_PAD = 36;
-  const LABEL_FS = 19;
-  const VALUE_FS = 29;
-  const LINE_H = 88;
-  const cardH = lines.length > 0 ? CARD_PAD * 2 + lines.length * LINE_H - 18 : 0;
+  const CARD_PAD = 34;
+  const LABEL_FS = 18;
+  const VALUE_FS = 28;
+  const CELL_H = 78;
+  const filasCard = Math.ceil(celdas.length / 2);
+  const cardTop = cursor;
+  const cardH = filasCard > 0 ? CARD_PAD * 2 + filasCard * CELL_H - 16 : 0;
+  const colW = (innerW - CARD_PAD * 2) / 2 - 14;
 
-  if (lines.length > 0) {
+  if (filasCard > 0) {
     parts.push(
-      `<rect x="${cardX}" y="${cardTop}" width="${cardW}" height="${cardH}" rx="${CARD_RX}" fill="#ffffff" filter="url(#cardShadow)"/>`
+      `<rect x="${PAD}" y="${cardTop}" width="${innerW}" height="${cardH}" rx="${CARD_RX}" fill="#ffffff" filter="url(#cardShadow)"/>`
     );
-    let ry = cardTop + CARD_PAD;
-    for (const line of lines) {
-      const colW = line.length === 2 ? (cardW - CARD_PAD * 2) / 2 - 12 : cardW - CARD_PAD * 2;
-      line.forEach((cell, ci) => {
-        const cxCell = cardX + CARD_PAD + ci * ((cardW - CARD_PAD * 2) / 2 + 12);
-        parts.push(
-          svgTextAsPath({
-            text: cell.label.toUpperCase(),
-            x: cxCell,
-            y: ry + LABEL_FS,
-            fontSize: LABEL_FS,
-            weight: 600,
-            fill: secondary,
-            textAnchor: "start",
-          }),
-          svgTextAsPath({
-            text: truncateToWidth(cell.value, VALUE_FS, 700, colW),
-            x: cxCell,
-            y: ry + LABEL_FS + 16 + VALUE_FS,
-            fontSize: VALUE_FS,
-            weight: 700,
-            fill: primary,
-            textAnchor: "start",
-          })
-        );
-      });
-      ry += LINE_H;
-    }
+    celdas.forEach((celda, i) => {
+      const col = i % 2;
+      const fila = Math.floor(i / 2);
+      const x = PAD + CARD_PAD + col * ((innerW - CARD_PAD * 2) / 2 + 14);
+      const yTop = cardTop + CARD_PAD + fila * CELL_H;
+      parts.push(
+        svgTextAsPath({
+          text: celda.label.toUpperCase(),
+          x,
+          y: yTop + LABEL_FS,
+          fontSize: LABEL_FS,
+          weight: 600,
+          fill: secondary,
+          textAnchor: "start",
+        }),
+        svgTextAsPath({
+          text: truncateToWidth(celda.value, VALUE_FS, 700, colW),
+          x,
+          y: yTop + LABEL_FS + 14 + VALUE_FS,
+          fontSize: VALUE_FS,
+          weight: 700,
+          fill: primary,
+          textAnchor: "start",
+        })
+      );
+    });
   }
 
-  // ---- Pie: fecha y nota legal (se reservan primero para no pisarlos) ----
-  const footerBaseline = HA - PAD;
-  const fechaBaseline = footer ? footerBaseline - 34 : footerBaseline;
+  // ---------- Pie ----------
+  const footerBaseline = HA - PAD + 6;
+  const fechaBaseline = footer ? footerBaseline - 30 : footerBaseline;
 
-  // ---- QR, anclado sobre el pie ----
-  const QR = 190;
-  const qrBottom = fechaBaseline - 46;
-  const qrTop = qrBottom - QR;
-  if (input.qrDataUrl) {
+  // ---------- Línea de corte y talón ----------
+  const cutY = cardTop + cardH + 42;
+  parts.push(
+    `<circle cx="0" cy="${cutY}" r="26" fill="${bg}"/>`,
+    `<circle cx="${WA}" cy="${cutY}" r="26" fill="${bg}"/>`,
+    `<line x1="${PAD - 6}" y1="${cutY}" x2="${WA - PAD + 6}" y2="${cutY}" stroke="${secondary}" stroke-width="3" stroke-dasharray="16 14" opacity="0.55"/>`
+  );
+
+  const stubTop = cutY + 40;
+  const stubBottom = fechaBaseline - 44;
+  const stubH = Math.max(230, stubBottom - stubTop);
+  parts.push(
+    `<rect x="${PAD}" y="${stubTop}" width="${innerW}" height="${stubH}" rx="${CARD_RX}" fill="${primary}"/>`
+  );
+
+  const QR = Math.min(214, stubH - 56);
+  const hayQr = Boolean(input.qrDataUrl);
+  const stubPad = 34;
+  const qrX = PAD + innerW - stubPad - QR;
+  const qrY = stubTop + (stubH - QR) / 2;
+  if (hayQr) {
     parts.push(
-      `<rect x="${cx - QR / 2 - 10}" y="${qrTop - 10}" width="${QR + 20}" height="${QR + 20}" rx="14" fill="#ffffff"/>`,
-      `<image href="${input.qrDataUrl}" x="${cx - QR / 2}" y="${qrTop}" width="${QR}" height="${QR}"/>`
+      `<rect x="${qrX - 10}" y="${qrY - 10}" width="${QR + 20}" height="${QR + 20}" rx="14" fill="#ffffff"/>`,
+      `<image href="${input.qrDataUrl}" x="${qrX}" y="${qrY}" width="${QR}" height="${QR}"/>`
     );
   }
 
-  // ---- Cupones, en el espacio que queda entre la tarjeta y el QR ----
-  const cuponesTop = (lines.length > 0 ? cardTop + cardH : titleBaseline) + 48;
-  const cuponesBottomLimit = (input.qrDataUrl ? qrTop : fechaBaseline) - 34;
   const cupones = showCup ? input.cupones.map((c) => String(c).trim()).filter(Boolean) : [];
+  const zonaX = PAD + stubPad;
+  const zonaW = (hayQr ? qrX - 22 : PAD + innerW - stubPad) - zonaX;
+  const zonaCx = zonaX + zonaW / 2;
+  const LABEL_STUB = 19;
+  const LABEL_GAP = 18;
+  const zonaAlto = stubH - 52;
+  /** Rótulo y números son un solo bloque centrado: si no, el rótulo queda flotando arriba. */
+  const medido = cuponesStubSvg({
+    cupones,
+    cx: zonaCx,
+    top: 0,
+    maxWidth: zonaW,
+    maxHeight: zonaAlto - (LABEL_STUB + LABEL_GAP),
+    color: "#ffffff",
+    accent,
+  });
+  const grupoAlto = cupones.length > 0 ? LABEL_STUB + LABEL_GAP + medido.height : 0;
+  const grupoTop = stubTop + Math.max(26, (stubH - grupoAlto) / 2);
   if (cupones.length > 0) {
-    const disponible = Math.max(80, cuponesBottomLimit - cuponesTop);
-    const medida = cuponesBlockSvg({ cupones, cx, top: cuponesTop, maxWidth: cardW, maxHeight: disponible, primary, accent });
-    /** Centrado vertical en el hueco: si no, con uno o dos cupones el bloque queda pegado a la tarjeta. */
-    const offset = Math.max(0, Math.round((disponible - medida.height) / 2));
-    const block =
-      offset > 0
-        ? cuponesBlockSvg({ cupones, cx, top: cuponesTop + offset, maxWidth: cardW, maxHeight: disponible - offset, primary, accent })
-        : medida;
-    parts.push(block.svg);
+    parts.push(
+      svgTextAsPath({
+        text: cupones.length === 1 ? "TU CUPÓN" : "TUS CUPONES",
+        x: zonaCx,
+        y: grupoTop + LABEL_STUB,
+        fontSize: LABEL_STUB,
+        weight: 700,
+        fill: accent,
+        textAnchor: "middle",
+      }),
+      cuponesStubSvg({
+        cupones,
+        cx: zonaCx,
+        top: grupoTop + LABEL_STUB + LABEL_GAP,
+        maxWidth: zonaW,
+        maxHeight: zonaAlto - (LABEL_STUB + LABEL_GAP),
+        color: "#ffffff",
+        accent,
+      }).svg
+    );
   }
 
+  // ---------- Fecha y nota legal ----------
   parts.push(
     svgTextAsPath({
       text: input.fechaHora,
       x: cx,
       y: fechaBaseline,
-      fontSize: 22,
+      fontSize: 21,
       weight: 400,
       fill: secondary,
       textAnchor: "middle",
@@ -384,10 +421,10 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   if (footer) {
     parts.push(
       svgTextAsPath({
-        text: truncateToWidth(footer, 19, 400, WA - PAD * 2),
+        text: truncateToWidth(footer, 18, 400, innerW),
         x: cx,
         y: footerBaseline,
-        fontSize: 19,
+        fontSize: 18,
         weight: 400,
         fill: secondary,
         textAnchor: "middle",
