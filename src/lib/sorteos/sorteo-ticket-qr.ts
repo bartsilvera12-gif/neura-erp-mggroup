@@ -17,6 +17,7 @@ export type SorteoTicketQrData = {
   clienteNombre?: string | null;
   documento?: string | null;
   telefono?: string | null;
+  ciudad?: string | null;
   sorteoNombre?: string | null;
 };
 
@@ -41,6 +42,7 @@ export function buildSorteoTicketQrPayload(data: SorteoTicketQrData): string {
     line("CLIENTE", data.clienteNombre),
     line("DOC", data.documento),
     line("TEL", data.telefono),
+    line("CIUDAD", data.ciudad),
     line("SORTEO", data.sorteoNombre),
   ]
     .filter((l): l is string => Boolean(l))

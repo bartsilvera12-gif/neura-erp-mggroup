@@ -55,6 +55,7 @@ export type SorteoTicketImageConfig = {
   showClienteNombre?: boolean;
   showDocumento?: boolean;
   showTelefono?: boolean;
+  showCiudad?: boolean;
   showNumeroOrden?: boolean;
   showCupones?: boolean;
   showSorteoNombre?: boolean;

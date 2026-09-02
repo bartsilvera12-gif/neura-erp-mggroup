@@ -17,6 +17,7 @@ export type SorteoTicketRenderInput = {
   clienteNombre?: string;
   documento?: string;
   telefono?: string;
+  ciudad?: string;
   numeroOrden: string;
   cupones: string[];
   /** ISO o texto localizable */
@@ -206,6 +207,7 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   const showTel = cfg.showTelefono !== false;
   const showOrd = cfg.showNumeroOrden !== false;
   const showCup = cfg.showCupones !== false;
+  const showCiudad = cfg.showCiudad !== false;
   const showSorteoNom = cfg.showSorteoNombre !== false;
 
   const hasLogo = showLogo && Boolean(input.logoBytes && input.logoMime);
@@ -311,6 +313,9 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   }
   if (showTel && input.telefono?.trim()) {
     filas.push({ label: "Teléfono", value: input.telefono.trim(), mono: true });
+  }
+  if (showCiudad && input.ciudad?.trim()) {
+    filas.push({ label: "Ciudad", value: input.ciudad.trim(), mono: false });
   }
   if (showOrd && String(input.numeroOrden ?? "").trim()) {
     filas.push({ label: "Nº de orden", value: String(input.numeroOrden).trim(), mono: true });
@@ -513,6 +518,15 @@ function buildCustomTemplateOverlaySvg(
     if (tel) {
       rows.push({
         text: `Teléfono: ${tel}`,
+        fs: r(Math.max(layout.telefono.fontSize, 28)),
+        color: colTel,
+        weight: 600,
+      });
+    }
+    const ciu = input.ciudad?.trim();
+    if (ciu) {
+      rows.push({
+        text: `Ciudad: ${ciu}`,
         fs: r(Math.max(layout.telefono.fontSize, 28)),
         color: colTel,
         weight: 600,
@@ -741,6 +755,7 @@ export async function renderTicketPngUnified(input: SorteoTicketRenderInput): Pr
               clienteNombre: input.clienteNombre,
               documento: input.documento,
               telefono: input.telefono,
+              ciudad: input.ciudad,
               sorteoNombre: input.sorteoNombre,
             }),
             560
