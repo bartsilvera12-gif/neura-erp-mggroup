@@ -56,6 +56,22 @@ export function getSorteoInterFont(weight: number): FontkitFont {
   return font;
 }
 
+/** Ancho del texto en px. Necesario para truncar y para centrar bloques sin que se pisen. */
+export function measureTicketTextWidth(text: string, fontSize: number, weight: number): number {
+  const t = text.replace(/s+/g, " ").trim();
+  if (!t) return 0;
+  try {
+    const font = getSorteoInterFont(weight);
+    const run = font.layout(t);
+    let adv = 0;
+    for (const pos of run.positions) adv += pos.xAdvance;
+    return (adv * fontSize) / font.unitsPerEm;
+  } catch {
+    /** Sin fuente disponible, aproximación conservadora. */
+    return t.length * fontSize * 0.6;
+  }
+}
+
 function escAttr(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
