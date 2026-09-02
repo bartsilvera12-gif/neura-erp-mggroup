@@ -20,7 +20,8 @@ function publicTicketAssetUrl(storagePath: string): string {
 
 function buildTicketImagePayload(
   base: Record<string, unknown>,
-  text: { caption: string; stub: string }
+  text: { caption: string; stub: string },
+  flags: { showQr: boolean }
 ): Record<string, unknown> {
   const ticketMerged: Record<string, unknown> = {
     ...base,
@@ -31,6 +32,7 @@ function buildTicketImagePayload(
     showNumeroOrden: true,
     showCupones: true,
     showSorteoNombre: true,
+    showQr: flags.showQr,
   };
   const cap = text.caption.trim();
   const stu = text.stub.trim();
@@ -93,6 +95,10 @@ export default function EditarSorteoPage() {
   const [ticketStub, setTicketStub] = useState("");
   /** Resto de claves de ticket_image_config (colores, show*, paths de storage). */
   const [ticketImageConfigBase, setTicketImageConfigBase] = useState<Record<string, unknown>>({});
+  /** QR con orden, cupones y datos del comprador impreso en el comprobante. */
+  const [ticketShowQr, setTicketShowQr] = useState(false);
+  const ticketShowQrRef = useRef(false);
+  ticketShowQrRef.current = ticketShowQr;
   const ticketCfgRef = useRef<Record<string, unknown>>({});
   ticketCfgRef.current = ticketImageConfigBase;
 
@@ -123,7 +129,9 @@ export default function EditarSorteoPage() {
 
   const persistTicketConfig = useCallback(
     async (nextBase: Record<string, unknown>) => {
-      const ticketMerged = buildTicketImagePayload(nextBase, textFields());
+      const ticketMerged = buildTicketImagePayload(nextBase, textFields(), {
+        showQr: ticketShowQrRef.current,
+      });
       const res = await fetchWithSupabaseSession(`/api/sorteos/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -179,6 +187,7 @@ export default function EditarSorteoPage() {
         );
         setTicketCaption(typeof tic.caption === "string" ? tic.caption : "");
         setTicketStub(typeof tic.ticket_image_only_stub === "string" ? tic.ticket_image_only_stub : "");
+        setTicketShowQr(tic.showQr === true);
         setCouponNumberingEnabled(Boolean(s.coupon_numbering_enabled));
         setCouponStart(
           s.coupon_number_start != null && Number.isFinite(Number(s.coupon_number_start))
@@ -287,7 +296,9 @@ export default function EditarSorteoPage() {
       fechaIso = d.toISOString();
     }
 
-    const ticketMerged = buildTicketImagePayload(ticketImageConfigBase, textFields());
+    const ticketMerged = buildTicketImagePayload(ticketImageConfigBase, textFields(), {
+      showQr: ticketShowQr,
+    });
 
     setGuardando(true);
     try {
@@ -701,6 +712,22 @@ export default function EditarSorteoPage() {
               <option value="image_only">Solo imagen del comprobante</option>
             </select>
           </div>
+
+          <label className="flex items-start gap-2 rounded-lg border border-violet-200 bg-white px-3 py-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={ticketShowQr}
+              onChange={(e) => setTicketShowQr(e.target.checked)}
+            />
+            <span className="text-sm text-slate-700">
+              <span className="font-medium text-slate-900">Imprimir QR en el comprobante</span>
+              <span className="block text-xs text-slate-600 mt-0.5">
+                Se agrega abajo del comprobante y contiene el número de orden, los cupones y los datos del
+                comprador (nombre, documento y teléfono). Se lee sin conexión: no es un enlace.
+              </span>
+            </span>
+          </label>
 
           <div className="rounded-xl border-2 border-violet-400/80 bg-white p-5 space-y-4">
             <div>

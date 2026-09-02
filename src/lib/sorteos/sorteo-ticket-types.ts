@@ -58,6 +58,11 @@ export type SorteoTicketImageConfig = {
   showNumeroOrden?: boolean;
   showCupones?: boolean;
   showSorteoNombre?: boolean;
+  /**
+   * QR con numero de orden, cupones y datos del comprador impreso en el comprobante.
+   * Apagado por defecto: los sorteos ya configurados no cambian de aspecto solos.
+   */
+  showQr?: boolean;
   /** Texto corto si image_only necesita texto aparte (fallback UX) */
   ticket_image_only_stub?: string;
 };

@@ -6,6 +6,10 @@ import {
   type SorteoTicketImageConfig,
 } from "@/lib/sorteos/sorteo-ticket-types";
 import { svgTextAsPath } from "@/lib/sorteos/sorteo-ticket-text-path";
+import {
+  buildSorteoTicketQrPayload,
+  renderSorteoTicketQrDataUrl,
+} from "@/lib/sorteos/sorteo-ticket-qr";
 
 export type SorteoTicketRenderInput = {
   empresaNombre: string;
@@ -26,6 +30,11 @@ export type SorteoTicketRenderInput = {
   /** Plantilla completa (custom_template) */
   templateBytes?: Buffer | null;
   templateMime?: string | null;
+  /**
+   * QR ya renderizado como data URL PNG. Lo resuelve `renderTicketPngUnified`
+   * (los builders de SVG son sincrónicos y el QR se genera de forma asíncrona).
+   */
+  qrDataUrl?: string | null;
 };
 
 /** Canvas modo automático — comprobante vertical premium */
@@ -223,6 +232,14 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   ${cuponesAutoSvg(cupones, cupY + 40, primary, secondary)}`
       : "";
 
+  /** QR al pie, arriba de la fecha: es lo que se escanea, no debe competir con el cupón. */
+  const qrSize = 220;
+  const qrBaseline = HA - PAD - (footer ? 56 : 28);
+  const qrY = qrBaseline - 40 - qrSize;
+  const qrSvg = input.qrDataUrl
+    ? `<image href="${input.qrDataUrl}" x="${(WA - qrSize) / 2}" y="${qrY}" width="${qrSize}" height="${qrSize}"/>`
+    : "";
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${WA}" height="${HA}" viewBox="0 0 ${WA} ${HA}">
   <defs>
@@ -254,6 +271,7 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   <rect x="${cardX}" y="${cardTop}" width="${cardW}" height="${cardH}" rx="${CARD_RX}" fill="#ffffff" filter="url(#cardShadow)"/>
   ${rowSvg}
   ${cupSvg}
+  ${qrSvg}
   ${svgTextAsPath({
     text: input.fechaHora,
     x: WA / 2,
@@ -401,6 +419,10 @@ function buildCustomTemplateOverlaySvg(
     return maxY;
   };
 
+  /** El QR va al pie; se reserva su alto para que el texto se achique en vez de solaparlo. */
+  const qrSize = input.qrDataUrl ? Math.max(160, Math.min(320, Math.round(Math.min(w, h) * 0.2))) : 0;
+  const qrReserve = qrSize > 0 ? qrSize + 24 : 0;
+
   let metaScale = 1.06;
   let metaRows = buildMetaRows(metaScale);
   for (let iter = 0; iter < 22; iter++) {
@@ -411,7 +433,7 @@ function buildCustomTemplateOverlaySvg(
     }
     ySim += blockGap - metaGap;
     const lastY = simulateLastCupBaseline(ySim);
-    if (lastY <= h - bottomPad || metaScale <= 0.56) {
+    if (lastY <= h - bottomPad - qrReserve || metaScale <= 0.56) {
       break;
     }
     metaScale *= 0.93;
@@ -500,6 +522,19 @@ function buildCustomTemplateOverlaySvg(
     }
   }
 
+  if (input.qrDataUrl && qrSize > 0) {
+    /** Recuadro blanco detrás: la plantilla del cliente suele ser oscura y el lector falla. */
+    const qrX = Math.round((w - qrSize) / 2);
+    const qrY = Math.round(h - bottomPad - qrSize);
+    const padBox = Math.round(qrSize * 0.05);
+    pieces.push(
+      `<rect x="${qrX - padBox}" y="${qrY - padBox}" width="${qrSize + padBox * 2}" height="${
+        qrSize + padBox * 2
+      }" rx="${Math.round(qrSize * 0.06)}" fill="#ffffff"/>`,
+      `<image href="${input.qrDataUrl}" x="${qrX}" y="${qrY}" width="${qrSize}" height="${qrSize}"/>`
+    );
+  }
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
   ${pieces.filter(Boolean).join("\n")}
@@ -540,11 +575,30 @@ export async function renderSorteoTicketPng(svg: string): Promise<{ png: Buffer;
  * Punto único: plantilla personalizada (imagen + texto) o automático (SVG premium).
  */
 export async function renderTicketPngUnified(input: SorteoTicketRenderInput): Promise<{ png: Buffer; hash: string }> {
+  /** El QR se resuelve una sola vez acá y lo consumen los dos modos de render. */
+  const withQr: SorteoTicketRenderInput = {
+    ...input,
+    qrDataUrl:
+      input.config.showQr === true
+        ? await renderSorteoTicketQrDataUrl(
+            buildSorteoTicketQrPayload({
+              numeroOrden: input.numeroOrden,
+              cupones: input.cupones,
+              clienteNombre: input.clienteNombre,
+              documento: input.documento,
+              telefono: input.telefono,
+              sorteoNombre: input.sorteoNombre,
+            }),
+            560
+          )
+        : null,
+  };
+
   const hasTemplate =
-    input.templateBytes && input.templateBytes.length > 0 && input.templateMime;
+    withQr.templateBytes && withQr.templateBytes.length > 0 && withQr.templateMime;
   if (hasTemplate) {
     try {
-      const png = await renderCustomTemplateTicketPng(input);
+      const png = await renderCustomTemplateTicketPng(withQr);
       const hash = createHash("sha256").update(png).digest("hex");
       return { png, hash };
     } catch (e) {
@@ -554,6 +608,6 @@ export async function renderTicketPngUnified(input: SorteoTicketRenderInput): Pr
     }
   }
 
-  const svg = buildSorteoTicketSvg(input);
+  const svg = buildSorteoTicketSvg(withQr);
   return renderSorteoTicketPng(svg);
 }
