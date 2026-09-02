@@ -116,6 +116,8 @@ export async function PATCH(
       is_active?: boolean;
       crm_action_type?: string | null;
       crm_action_config?: Record<string, unknown> | null;
+      input_validation?: string | null;
+      input_invalid_message?: string | null;
     };
     const patch: Record<string, unknown> = {};
     if (typeof body.node_type === "string") {
@@ -132,6 +134,16 @@ export async function PATCH(
       patch.sort_order = Math.max(1, Math.trunc(body.sort_order));
     }
     if (typeof body.is_active === "boolean") patch.is_active = body.is_active;
+    if ("input_validation" in body) {
+      const v = (body.input_validation ?? "none").trim();
+      if (v !== "none" && v !== "number") {
+        return NextResponse.json({ ok: false, error: "input_validation inválido" }, { status: 400 });
+      }
+      patch.input_validation = v;
+    }
+    if ("input_invalid_message" in body) {
+      patch.input_invalid_message = body.input_invalid_message?.trim() || null;
+    }
     if ("crm_action_type" in body) patch.crm_action_type = body.crm_action_type?.trim() || null;
     if ("crm_action_config" in body) {
       patch.crm_action_config =

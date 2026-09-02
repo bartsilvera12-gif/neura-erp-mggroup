@@ -44,6 +44,9 @@ export type FlowNode = {
   is_active: boolean;
   crm_action_type: string | null;
   crm_action_config: Record<string, unknown>;
+  /** Captura de texto: qué se espera del cliente y qué repreguntar si no llega. */
+  input_validation?: string | null;
+  input_invalid_message?: string | null;
   options: FlowNodeOption[];
   blocks: FlowNodeBlock[];
 };

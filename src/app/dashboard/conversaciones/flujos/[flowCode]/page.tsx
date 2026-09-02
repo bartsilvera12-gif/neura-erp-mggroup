@@ -498,6 +498,8 @@ export default function FlowEditorPage() {
           is_active: node.is_active,
           crm_action_type: node.crm_action_type ?? null,
           crm_action_config: node.crm_action_config ?? {},
+          input_validation: node.input_validation ?? "none",
+          input_invalid_message: node.input_invalid_message ?? null,
         }),
       }
     );

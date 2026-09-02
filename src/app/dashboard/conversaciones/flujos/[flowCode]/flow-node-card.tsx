@@ -537,6 +537,44 @@ export function FlowNodeCard(props: FlowNodeCardProps) {
                     siguiente paso igual ocurre).
                   </p>
                 )}
+                {node.node_type === "text" && node.save_as_field?.trim() && (
+                  <div className="mt-3 space-y-2 rounded-lg border border-sky-200 bg-sky-50/60 p-2.5">
+                    <div>
+                      <label className="block text-xs text-slate-600 mb-1" htmlFor={`node-input-val-${node.id}`}>
+                        Qué tiene que responder el cliente
+                      </label>
+                      <select
+                        id={`node-input-val-${node.id}`}
+                        className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full bg-white"
+                        value={node.input_validation === "number" ? "number" : "none"}
+                        onChange={(e) => props.onPatchNode(node.id, { input_validation: e.target.value })}
+                      >
+                        <option value="none">Cualquier texto</option>
+                        <option value="number">Solo un número (ej. cantidad de boletas)</option>
+                      </select>
+                    </div>
+                    {node.input_validation === "number" && (
+                      <div>
+                        <label className="block text-xs text-slate-600 mb-1" htmlFor={`node-input-msg-${node.id}`}>
+                          Mensaje si responde otra cosa
+                        </label>
+                        <input
+                          id={`node-input-msg-${node.id}`}
+                          className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full bg-white"
+                          placeholder="Respondé únicamente el número, por favor. Ej: 2"
+                          value={node.input_invalid_message ?? ""}
+                          onChange={(e) =>
+                            props.onPatchNode(node.id, { input_invalid_message: e.target.value || null })
+                          }
+                        />
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          El bot lo manda y se queda en este paso hasta recibir un número. Vacío = texto por
+                          defecto.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="md:col-span-2">
                 <label className="block text-xs text-slate-500 mb-1" htmlFor={`node-crm-${node.id}`}>

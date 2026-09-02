@@ -1,0 +1,55 @@
+/**
+ * Validación de la respuesta en pasos de captura de texto.
+ *
+ * Sirve para pedir la cantidad de boletas escribiéndola en vez de con botones:
+ * si el cliente responde cualquier otra cosa, el bot repregunta y el flujo no avanza.
+ */
+
+export type FlowInputValidation = "none" | "number";
+
+export const DEFAULT_INVALID_NUMBER_MESSAGE = "Respondé únicamente el número, por favor. Ej: 2";
+
+/** Tope de seguridad: evita que un pegote de dígitos entre como cantidad. */
+const MAX_NUMBER_DIGITS = 6;
+
+export function normalizeFlowInputValidation(raw: unknown): FlowInputValidation {
+  return raw === "number" ? "number" : "none";
+}
+
+export type FlowInputCheck =
+  | { ok: true; value: string }
+  | { ok: false; reason: "not_a_number" | "out_of_range" };
+
+/**
+ * Acepta solo dígitos, tolerando espacios y separadores de miles que la gente
+ * escribe sin pensar («1.000», «1 000»). No interpreta palabras: si el cliente
+ * escribe «dos» o «quiero 3 boletas» se repregunta, que es lo pedido.
+ */
+export function checkFlowInput(value: string, validation: FlowInputValidation): FlowInputCheck {
+  if (validation !== "number") return { ok: true, value: value.trim() };
+
+  const bruto = value.trim();
+  let digitos: string;
+  if (/^\d+$/.test(bruto)) {
+    digitos = bruto;
+  } else if (/^\d{1,3}([.,\s]\d{3})+$/.test(bruto)) {
+    /**
+     * Solo se aceptan separadores de miles en grupos de tres («1.000»). Antes se borraba
+     * cualquier punto y «2.5» entraba como 25 boletas: un decimal tiene que repreguntarse.
+     */
+    digitos = bruto.replace(/[.,\s]/g, "");
+  } else {
+    return { ok: false, reason: "not_a_number" };
+  }
+
+  if (digitos.length > MAX_NUMBER_DIGITS) return { ok: false, reason: "out_of_range" };
+  const n = Number(digitos);
+  if (!Number.isFinite(n) || n <= 0) return { ok: false, reason: "out_of_range" };
+  /** Se guarda normalizado: «01» y «1 » quedan iguales para el resto del flujo. */
+  return { ok: true, value: String(n) };
+}
+
+export function flowInputInvalidMessage(custom: string | null | undefined): string {
+  const t = typeof custom === "string" ? custom.trim() : "";
+  return t || DEFAULT_INVALID_NUMBER_MESSAGE;
+}

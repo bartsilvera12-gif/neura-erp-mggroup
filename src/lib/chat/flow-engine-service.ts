@@ -1,6 +1,11 @@
 import { downloadMetaMediaBytes } from "@/lib/chat/meta-media-download";
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
 import {
+  checkFlowInput,
+  flowInputInvalidMessage,
+  normalizeFlowInputValidation,
+} from "@/lib/chat/flow-input-validation";
+import {
   COMPROBANTE_BUTTON_IDS,
   FLOW_SORTEO_PENDIENTE_DATOS_PARTICIPANTE_FIELD,
   parseComprobanteValidationConfig,
@@ -162,6 +167,9 @@ type FlowNode = {
   next_node_code: string | null;
   node_type: "buttons" | "list" | "text" | "media" | "image_input" | "human" | "end";
   is_active: boolean;
+  /** Captura de texto: qué se espera y qué repreguntar si no llega eso. */
+  input_validation?: string | null;
+  input_invalid_message?: string | null;
 };
 
 type FlowNodeBlock = {
@@ -901,7 +909,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     const { data, error } = await supabase
       .from("chat_flow_nodes")
       .select(
-        "id, empresa_id, flow_code, node_code, message_text, save_as_field, next_node_code, node_type, is_active"
+        "id, empresa_id, flow_code, node_code, message_text, save_as_field, next_node_code, node_type, is_active, input_validation, input_invalid_message"
       )
       .eq("empresa_id", empresaId)
       .eq("flow_code", flowCode)
@@ -3426,6 +3434,42 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       return { ok: true, status: "ignored_not_text_node" };
     }
 
+    /**
+     * Validación de lo que respondió el cliente. Si el paso pide un número y llega
+     * otra cosa, se repregunta y el flujo se queda en el mismo nodo: sin esto, un
+     * «quiero 3 boletas» entraba como cantidad y rompía el monto de la compra.
+     */
+    const validation = normalizeFlowInputValidation(currentNode.input_validation);
+    const check = checkFlowInput(textValue, validation);
+    if (!check.ok) {
+      const aviso = flowInputInvalidMessage(currentNode.input_invalid_message);
+      const sendCtx = await getConversationSendContext(state.id);
+      const send = await flowSendText(sendCtx, aviso);
+      if (send.ok) {
+        await persistOutgoingMessage({
+          conversation: state,
+          content: aviso,
+          messageType: "text",
+          waMessageId: send.waMessageId,
+          raw: send.raw,
+          senderType: "system",
+          automationSource: "flow_engine",
+        });
+      }
+      await insertFlowEvent({
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        nodeCode: currentNode.node_code,
+        flowSessionId: state.active_flow_session_id,
+        eventType: "input_invalid_reprompt",
+        payload: { validation, reason: check.reason, text_value: textValue },
+      });
+      return { ok: true, status: "input_invalid_reprompt" };
+    }
+    /** A partir de acá se guarda el valor normalizado («01» → «1»). */
+    const capturedValue = check.value;
+
     const textFlowSid = state.active_flow_session_id?.trim();
     if (!textFlowSid) {
       return {
@@ -3445,7 +3489,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
             flow_code: state.flow_code,
             flow_session_id: textFlowSid,
             field_name: currentNode.save_as_field,
-            field_value: textValue,
+            field_value: capturedValue,
           },
           { onConflict: "flow_session_id,field_name" }
         );
@@ -3460,7 +3504,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         node_code: currentNode.node_code,
         event: "text_captured",
         field_name: currentNode.save_as_field ?? null,
-        field_value_len: textValue.length,
+        field_value_len: capturedValue.length,
       });
       const sfLower = currentNode.save_as_field.trim().toLowerCase();
       if (["nombre", "apellido", "nombre_y_apellido"].includes(sfLower)) {
@@ -3493,7 +3537,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       eventType: "text_captured",
       payload: {
         save_as_field: currentNode.save_as_field ?? null,
-        text_value: textValue,
+        text_value: capturedValue,
         raw: params.rawPayload,
       },
     });
