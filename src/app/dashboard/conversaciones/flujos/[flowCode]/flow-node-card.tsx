@@ -567,11 +567,18 @@ export function FlowNodeCard(props: FlowNodeCardProps) {
                       <select
                         id={`node-input-val-${node.id}`}
                         className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full bg-white"
-                        value={node.input_validation === "number" ? "number" : "none"}
+                        value={
+                          node.input_validation === "number" || node.input_validation === "title_case"
+                            ? node.input_validation
+                            : "none"
+                        }
                         onChange={(e) => props.onPatchNode(node.id, { input_validation: e.target.value })}
                       >
                         <option value="none">Cualquier texto</option>
                         <option value="number">Solo un número (ej. cantidad de boletas)</option>
+                        <option value="title_case">
+                          Nombre o ciudad (corrige mayúsculas: «ciudad del este» → «Ciudad del Este»)
+                        </option>
                       </select>
                     </div>
                     {node.input_validation === "number" && (

@@ -5,7 +5,43 @@
  * si el cliente responde cualquier otra cosa, el bot repregunta y el flujo no avanza.
  */
 
-export type FlowInputValidation = "none" | "number";
+export type FlowInputValidation = "none" | "number" | "title_case";
+
+/** Conectores que en español van en minúscula salvo que abran el texto. */
+const CONECTORES = new Set(["de", "del", "la", "las", "los", "y", "e", "da", "do", "dos", "el"]);
+
+/**
+ * Capitaliza nombres y ciudades: «ciudad del este» → «Ciudad del Este».
+ * Conserva las siglas cortas ya escritas en mayúscula (CDE, EEUU) para no romperlas.
+ */
+export function toTitleCaseEs(value: string): string {
+  const limpio = value.trim().replace(/\s+/g, " ");
+  const palabras = limpio.split(" ");
+  /**
+   * Si TODO viene en mayúscula («CIUDAD DEL ESTE») no se puede distinguir una sigla de
+   * un grito, así que se capitaliza todo. La excepción es una palabra sola y corta
+   * («CDE»), que casi siempre es una sigla de verdad.
+   */
+  const todoMayusculas =
+    /\p{L}/u.test(limpio) && limpio === limpio.toLocaleUpperCase("es") && palabras.length > 1;
+  return palabras
+    .map((palabra, i) => {
+      if (!palabra) return palabra;
+      const soloLetras = palabra.replace(/[^\p{L}]/gu, "");
+      if (
+        !todoMayusculas &&
+        soloLetras.length > 1 &&
+        soloLetras.length <= 4 &&
+        palabra === palabra.toLocaleUpperCase("es")
+      ) {
+        return palabra;
+      }
+      const baja = palabra.toLocaleLowerCase("es");
+      if (i > 0 && CONECTORES.has(baja)) return baja;
+      return baja.charAt(0).toLocaleUpperCase("es") + baja.slice(1);
+    })
+    .join(" ");
+}
 
 export const DEFAULT_INVALID_NUMBER_MESSAGE = "Respondé únicamente el número, por favor. Ej: 2";
 
@@ -13,7 +49,9 @@ export const DEFAULT_INVALID_NUMBER_MESSAGE = "Respondé únicamente el número,
 const MAX_NUMBER_DIGITS = 6;
 
 export function normalizeFlowInputValidation(raw: unknown): FlowInputValidation {
-  return raw === "number" ? "number" : "none";
+  if (raw === "number") return "number";
+  if (raw === "title_case") return "title_case";
+  return "none";
 }
 
 export type FlowInputCheck =
@@ -26,6 +64,7 @@ export type FlowInputCheck =
  * escribe «dos» o «quiero 3 boletas» se repregunta, que es lo pedido.
  */
 export function checkFlowInput(value: string, validation: FlowInputValidation): FlowInputCheck {
+  if (validation === "title_case") return { ok: true, value: toTitleCaseEs(value) };
   if (validation !== "number") return { ok: true, value: value.trim() };
 
   const bruto = value.trim();
