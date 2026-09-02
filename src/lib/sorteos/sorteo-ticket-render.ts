@@ -37,11 +37,10 @@ export type SorteoTicketRenderInput = {
   qrDataUrl?: string | null;
 };
 
-/** Canvas modo automático — comprobante vertical premium */
+/** Lienzo del modo automático (formato historia de WhatsApp). */
 const WA = 1080;
 const HA = 1350;
 const PAD = 48;
-const CARD_RX = 28;
 
 function initials(name: string): string {
   const p = name.trim().split(/\s+/).filter(Boolean);
@@ -175,18 +174,19 @@ function anyTooWide(items: string[], fontSize: number, weight: number, maxWidth:
 }
 
 /**
- * Modo automático: boleta con troquel.
+ * Modo automático: boleta impresa.
  *
- * Cabecera oscura con el logo, nombre del sorteo, tarjeta de datos, línea de corte
- * con muescas y un talón oscuro donde el cupón y el QR son los protagonistas.
- * Todo se ubica con medidas reales de texto, no con offsets fijos.
+ * Papel cálido, cabecera y franja de cupones a sangre, filas de datos separadas por
+ * hilos y troquel punteado. Sin tarjetas redondeadas ni sombras: son las que hacen que
+ * el comprobante parezca una plantilla web genérica en vez de una boleta.
  */
 export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   const cfg = input.config;
-  const bg = (cfg.backgroundColor ?? "#eef1f5").trim();
-  const primary = (cfg.primaryColor ?? "#0d1424").trim();
-  const secondary = (cfg.secondaryColor ?? "#6b7787").trim();
-  const accent = (cfg.primaryColor ? (cfg.secondaryColor ?? "#d4a017") : "#d4a017").trim();
+  /** Papel cálido y tinta casi negra: el gris azulado de plantilla es lo que delata al diseño genérico. */
+  const bg = (cfg.backgroundColor ?? "#f7f4ee").trim();
+  const ink = (cfg.primaryColor ?? "#15120d").trim();
+  const muted = (cfg.secondaryColor ?? "#7d7466").trim();
+  const gold = (cfg.primaryColor ? (cfg.secondaryColor ?? "#c08a2e") : "#c08a2e").trim();
   const title = (cfg.title ?? "Comprobante de participación").trim();
   const footer = (cfg.legalFooter ?? "").trim();
 
@@ -206,38 +206,48 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   if (input.backgroundBytes && input.backgroundMime) {
     const href = dataUrlFromBuffer(input.backgroundBytes, input.backgroundMime);
     parts.push(
-      `<image href="${href}" x="0" y="0" width="${WA}" height="${HA}" preserveAspectRatio="xMidYMid slice" opacity="0.08"/>`
+      `<image href="${href}" x="0" y="0" width="${WA}" height="${HA}" preserveAspectRatio="xMidYMid slice" opacity="0.07"/>`
     );
   }
 
-  // ---------- Cabecera ----------
-  const LOGO = 200;
-  const bandH = hasLogo ? 356 : 262;
-  parts.push(`<rect x="0" y="0" width="${WA}" height="${bandH}" fill="${primary}"/>`);
-  parts.push(`<rect x="0" y="${bandH - 5}" width="${WA}" height="5" fill="${accent}"/>`);
+  /** Texto alineado a la derecha: el helper solo ancla a izquierda o centro. */
+  const right = (text: string, xRight: number, y: number, fontSize: number, weight: number, fill: string) =>
+    svgTextAsPath({
+      text,
+      x: xRight - measureTicketTextWidth(text, fontSize, weight),
+      y,
+      fontSize,
+      weight,
+      fill,
+      textAnchor: "start",
+    });
 
-  let y = 46;
+  // ---------- Cabecera a sangre (sin recuadros) ----------
+  const LOGO = 230;
+  const bandH = hasLogo ? 372 : 268;
+  parts.push(`<rect x="0" y="0" width="${WA}" height="${bandH}" fill="${ink}"/>`);
+  parts.push(`<rect x="0" y="${bandH - 4}" width="${WA}" height="4" fill="${gold}"/>`);
+
+  let y = 44;
   if (hasLogo) {
     const href = dataUrlFromBuffer(input.logoBytes!, input.logoMime!);
     parts.push(
       `<image href="${href}" x="${cx - LOGO / 2}" y="${y}" width="${LOGO}" height="${LOGO}" preserveAspectRatio="xMidYMid meet"/>`
     );
-    y += LOGO + 26;
+    y += LOGO + 22;
   } else if (showLogo) {
-    const r = 54;
-    parts.push(`<circle cx="${cx}" cy="${y + r}" r="${r}" fill="#ffffff" opacity="0.10"/>`);
     parts.push(
       svgTextAsPath({
         text: initials(input.empresaNombre),
         x: cx,
-        y: y + r + 17,
-        fontSize: 46,
+        y: y + 92,
+        fontSize: 96,
         weight: 800,
-        fill: "#ffffff",
+        fill: gold,
         textAnchor: "middle",
       })
     );
-    y += r * 2 + 24;
+    y += 122;
   }
   parts.push(
     svgTextAsPath({
@@ -250,140 +260,118 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
       textAnchor: "middle",
     }),
     svgTextAsPath({
-      text: truncateToWidth(title.toUpperCase(), 19, 600, innerW),
+      text: truncateToWidth(title.toUpperCase(), 18, 600, innerW),
       x: cx,
-      y: y + 30 + 34,
-      fontSize: 19,
+      y: y + 30 + 32,
+      fontSize: 18,
       weight: 600,
-      fill: accent,
+      fill: gold,
       textAnchor: "middle",
     })
   );
 
-  // ---------- Nombre del sorteo ----------
-  let cursor = bandH + 46;
+  // ---------- Sorteo ----------
+  let cursor = bandH + 52;
   if (showSorteoNom && input.sorteoNombre?.trim()) {
-    const lineas = wrapToWidth(input.sorteoNombre.trim(), 32, 800, innerW, 2);
-    for (const linea of lineas) {
+    for (const linea of wrapToWidth(input.sorteoNombre.trim(), 34, 800, innerW, 2)) {
       parts.push(
-        svgTextAsPath({
-          text: linea,
-          x: cx,
-          y: cursor + 32,
-          fontSize: 32,
-          weight: 800,
-          fill: primary,
-          textAnchor: "middle",
-        })
+        svgTextAsPath({ text: linea, x: PAD, y: cursor + 34, fontSize: 34, weight: 800, fill: ink, textAnchor: "start" })
       );
-      cursor += 40;
+      cursor += 42;
     }
-    cursor += 18;
+    cursor += 22;
   }
 
-  // ---------- Tarjeta de datos (dos columnas) ----------
-  const celdas: { label: string; value: string }[] = [];
+  // ---------- Datos: filas con hilo, sin tarjeta ----------
+  const filas: { label: string; value: string }[] = [];
   if (showNombre && input.clienteNombre?.trim()) {
-    celdas.push({ label: "Participante", value: input.clienteNombre.trim() });
+    filas.push({ label: "Participante", value: input.clienteNombre.trim() });
   }
+  if (showDoc && input.documento?.trim()) filas.push({ label: "Documento", value: input.documento.trim() });
+  if (showTel && input.telefono?.trim()) filas.push({ label: "Teléfono", value: input.telefono.trim() });
   if (showOrd && String(input.numeroOrden ?? "").trim()) {
-    celdas.push({ label: "Nº de orden", value: String(input.numeroOrden).trim() });
+    filas.push({ label: "Nº de orden", value: String(input.numeroOrden).trim() });
   }
-  if (showDoc && input.documento?.trim()) celdas.push({ label: "Documento", value: input.documento.trim() });
-  if (showTel && input.telefono?.trim()) celdas.push({ label: "Teléfono", value: input.telefono.trim() });
 
-  const CARD_PAD = 34;
-  const LABEL_FS = 18;
-  const VALUE_FS = 28;
-  const CELL_H = 78;
-  const filasCard = Math.ceil(celdas.length / 2);
-  const cardTop = cursor;
-  const cardH = filasCard > 0 ? CARD_PAD * 2 + filasCard * CELL_H - 16 : 0;
-  const colW = (innerW - CARD_PAD * 2) / 2 - 14;
-
-  if (filasCard > 0) {
+  const ROW_H = 64;
+  const LABEL_FS = 20;
+  const VALUE_FS = 26;
+  parts.push(`<rect x="${PAD}" y="${cursor}" width="${innerW}" height="1.5" fill="${ink}" opacity="0.18"/>`);
+  for (const fila of filas) {
+    const baseline = cursor + ROW_H / 2 + 9;
+    const labelW = measureTicketTextWidth(fila.label.toUpperCase(), LABEL_FS, 600);
     parts.push(
-      `<rect x="${PAD}" y="${cardTop}" width="${innerW}" height="${cardH}" rx="${CARD_RX}" fill="#ffffff" filter="url(#cardShadow)"/>`
+      svgTextAsPath({
+        text: fila.label.toUpperCase(),
+        x: PAD,
+        y: baseline,
+        fontSize: LABEL_FS,
+        weight: 600,
+        fill: muted,
+        textAnchor: "start",
+      }),
+      right(
+        truncateToWidth(fila.value, VALUE_FS, 700, innerW - labelW - 40),
+        WA - PAD,
+        baseline,
+        VALUE_FS,
+        700,
+        ink
+      ),
+      `<rect x="${PAD}" y="${cursor + ROW_H}" width="${innerW}" height="1.5" fill="${ink}" opacity="0.10"/>`
     );
-    celdas.forEach((celda, i) => {
-      const col = i % 2;
-      const fila = Math.floor(i / 2);
-      const x = PAD + CARD_PAD + col * ((innerW - CARD_PAD * 2) / 2 + 14);
-      const yTop = cardTop + CARD_PAD + fila * CELL_H;
-      parts.push(
-        svgTextAsPath({
-          text: celda.label.toUpperCase(),
-          x,
-          y: yTop + LABEL_FS,
-          fontSize: LABEL_FS,
-          weight: 600,
-          fill: secondary,
-          textAnchor: "start",
-        }),
-        svgTextAsPath({
-          text: truncateToWidth(celda.value, VALUE_FS, 700, colW),
-          x,
-          y: yTop + LABEL_FS + 14 + VALUE_FS,
-          fontSize: VALUE_FS,
-          weight: 700,
-          fill: primary,
-          textAnchor: "start",
-        })
-      );
-    });
+    cursor += ROW_H;
   }
 
   // ---------- Pie ----------
-  const footerBaseline = HA - PAD + 6;
+  const footerBaseline = HA - PAD + 8;
   const fechaBaseline = footer ? footerBaseline - 30 : footerBaseline;
 
-  // ---------- Línea de corte y talón ----------
-  const cutY = cardTop + cardH + 42;
+  // ---------- Troquel ----------
+  const cutY = cursor + 54;
   parts.push(
-    `<circle cx="0" cy="${cutY}" r="26" fill="${bg}"/>`,
-    `<circle cx="${WA}" cy="${cutY}" r="26" fill="${bg}"/>`,
-    `<line x1="${PAD - 6}" y1="${cutY}" x2="${WA - PAD + 6}" y2="${cutY}" stroke="${secondary}" stroke-width="3" stroke-dasharray="16 14" opacity="0.55"/>`
+    `<circle cx="0" cy="${cutY}" r="24" fill="${ink}" opacity="0.10"/>`,
+    `<circle cx="${WA}" cy="${cutY}" r="24" fill="${ink}" opacity="0.10"/>`,
+    `<circle cx="0" cy="${cutY}" r="21" fill="${bg}"/>`,
+    `<circle cx="${WA}" cy="${cutY}" r="21" fill="${bg}"/>`,
+    `<line x1="${PAD - 10}" y1="${cutY}" x2="${WA - PAD + 10}" y2="${cutY}" stroke="${ink}" stroke-width="3" stroke-dasharray="12 16" opacity="0.35"/>`
   );
 
-  const stubTop = cutY + 40;
-  const stubBottom = fechaBaseline - 44;
-  const stubH = Math.max(230, stubBottom - stubTop);
-  parts.push(
-    `<rect x="${PAD}" y="${stubTop}" width="${innerW}" height="${stubH}" rx="${CARD_RX}" fill="${primary}"/>`
-  );
+  // ---------- Franja de cupones, a sangre ----------
+  const stripTop = cutY + 46;
+  const stripBottom = fechaBaseline - 46;
+  const stripH = Math.max(220, stripBottom - stripTop);
+  parts.push(`<rect x="0" y="${stripTop}" width="${WA}" height="${stripH}" fill="${ink}"/>`);
 
-  const QR = Math.min(214, stubH - 56);
+  const QR = Math.min(206, stripH - 60);
   const hayQr = Boolean(input.qrDataUrl);
-  const stubPad = 34;
-  const qrX = PAD + innerW - stubPad - QR;
-  const qrY = stubTop + (stubH - QR) / 2;
+  const qrX = WA - PAD - QR;
+  const qrY = stripTop + (stripH - QR) / 2;
   if (hayQr) {
     parts.push(
-      `<rect x="${qrX - 10}" y="${qrY - 10}" width="${QR + 20}" height="${QR + 20}" rx="14" fill="#ffffff"/>`,
+      `<rect x="${qrX - 12}" y="${qrY - 12}" width="${QR + 24}" height="${QR + 24}" fill="#ffffff"/>`,
       `<image href="${input.qrDataUrl}" x="${qrX}" y="${qrY}" width="${QR}" height="${QR}"/>`
     );
   }
 
   const cupones = showCup ? input.cupones.map((c) => String(c).trim()).filter(Boolean) : [];
-  const zonaX = PAD + stubPad;
-  const zonaW = (hayQr ? qrX - 22 : PAD + innerW - stubPad) - zonaX;
+  const zonaX = PAD;
+  const zonaW = (hayQr ? qrX - 34 : WA - PAD) - zonaX;
   const zonaCx = zonaX + zonaW / 2;
-  const LABEL_STUB = 19;
-  const LABEL_GAP = 18;
-  const zonaAlto = stubH - 52;
-  /** Rótulo y números son un solo bloque centrado: si no, el rótulo queda flotando arriba. */
-  const medido = cuponesStubSvg({
-    cupones,
-    cx: zonaCx,
-    top: 0,
-    maxWidth: zonaW,
-    maxHeight: zonaAlto - (LABEL_STUB + LABEL_GAP),
-    color: "#ffffff",
-    accent,
-  });
-  const grupoAlto = cupones.length > 0 ? LABEL_STUB + LABEL_GAP + medido.height : 0;
-  const grupoTop = stubTop + Math.max(26, (stubH - grupoAlto) / 2);
+  const LABEL_STUB = 18;
+  const LABEL_GAP = 16;
   if (cupones.length > 0) {
+    const medido = cuponesStubSvg({
+      cupones,
+      cx: zonaCx,
+      top: 0,
+      maxWidth: zonaW,
+      maxHeight: stripH - 52 - (LABEL_STUB + LABEL_GAP),
+      color: "#ffffff",
+      accent: gold,
+    });
+    const grupoAlto = LABEL_STUB + LABEL_GAP + medido.height;
+    const grupoTop = stripTop + Math.max(24, (stripH - grupoAlto) / 2);
     parts.push(
       svgTextAsPath({
         text: cupones.length === 1 ? "TU CUPÓN" : "TUS CUPONES",
@@ -391,7 +379,7 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
         y: grupoTop + LABEL_STUB,
         fontSize: LABEL_STUB,
         weight: 700,
-        fill: accent,
+        fill: gold,
         textAnchor: "middle",
       }),
       cuponesStubSvg({
@@ -399,22 +387,22 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
         cx: zonaCx,
         top: grupoTop + LABEL_STUB + LABEL_GAP,
         maxWidth: zonaW,
-        maxHeight: zonaAlto - (LABEL_STUB + LABEL_GAP),
+        maxHeight: stripH - 52 - (LABEL_STUB + LABEL_GAP),
         color: "#ffffff",
-        accent,
+        accent: gold,
       }).svg
     );
   }
 
-  // ---------- Fecha y nota legal ----------
+  // ---------- Fecha y nota ----------
   parts.push(
     svgTextAsPath({
       text: input.fechaHora,
       x: cx,
       y: fechaBaseline,
-      fontSize: 21,
+      fontSize: 20,
       weight: 400,
-      fill: secondary,
+      fill: muted,
       textAnchor: "middle",
     })
   );
@@ -426,7 +414,7 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
         y: footerBaseline,
         fontSize: 18,
         weight: 400,
-        fill: secondary,
+        fill: muted,
         textAnchor: "middle",
       })
     );
@@ -434,11 +422,6 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${WA}" height="${HA}" viewBox="0 0 ${WA} ${HA}">
-  <defs>
-    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-opacity="0.10"/>
-    </filter>
-  </defs>
   ${parts.filter(Boolean).join("\n  ")}
 </svg>`;
 }
