@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { markMissingFlowNodeColumns } from "@/lib/chat/flow-node-columns";
 import { getChatServiceClientForEmpresa } from "@/app/api/chat/_chat-service-client";
 import { getAuthWithRol } from "@/lib/middleware/auth";
 
@@ -189,14 +190,28 @@ export async function PATCH(
       }
     }
 
-    const { data, error } = await supabase
-      .from("chat_flow_nodes")
-      .update(patch)
-      .eq("empresa_id", auth.empresa_id)
-      .eq("flow_code", params.flowCode)
-      .eq("node_code", params.nodeCode)
-      .select("id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, created_at")
-      .maybeSingle();
+    const guardar = async (cambios: Record<string, unknown>) =>
+      supabase
+        .from("chat_flow_nodes")
+        .update(cambios)
+        .eq("empresa_id", auth.empresa_id)
+        .eq("flow_code", params.flowCode)
+        .eq("node_code", params.nodeCode)
+        .select("id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, created_at")
+        .maybeSingle();
+
+    let { data, error } = await guardar(patch);
+    if (error && markMissingFlowNodeColumns(error.message)) {
+      /**
+       * Base sin migrar: se guarda lo demás y se avisa, en vez de perder toda la edición
+       * del paso por dos campos que todavía no existen.
+       */
+      const sinNuevas = { ...patch };
+      delete sinNuevas.input_validation;
+      delete sinNuevas.input_invalid_message;
+      delete sinNuevas.capture_confirm_label;
+      ({ data, error } = await guardar(sinNuevas));
+    }
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
     if (!data) return NextResponse.json({ ok: false, error: "Nodo no encontrado" }, { status: 404 });
     return NextResponse.json({ ok: true, item: data });

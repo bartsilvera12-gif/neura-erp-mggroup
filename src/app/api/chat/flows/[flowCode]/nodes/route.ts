@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { flowNodeColumns, markMissingFlowNodeColumns } from "@/lib/chat/flow-node-columns";
 import { getChatServiceClientForEmpresa } from "@/app/api/chat/_chat-service-client";
 import { getAuthWithRol } from "@/lib/middleware/auth";
 
@@ -17,18 +18,25 @@ export async function GET(
     const flowCode = params.flowCode;
     const supabase = await getChatServiceClientForEmpresa(auth.empresa_id);
 
-    const { data: nodes, error: nErr } = await supabase
-      .from("chat_flow_nodes")
-      .select(
-        "id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, input_validation, input_invalid_message, capture_confirm_label, created_at"
-      )
-      .eq("empresa_id", auth.empresa_id)
-      .eq("flow_code", flowCode)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
+    const consultarNodos = async (columnas: string) =>
+      supabase
+        .from("chat_flow_nodes")
+        .select(columnas)
+        .eq("empresa_id", auth.empresa_id)
+        .eq("flow_code", flowCode)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+
+    let { data: nodes, error: nErr } = await consultarNodos(flowNodeColumns(true));
+    if (nErr && markMissingFlowNodeColumns(nErr.message)) {
+      /** Base sin migrar: se listan los pasos sin las columnas nuevas en vez de mostrar cero. */
+      ({ data: nodes, error: nErr } = await consultarNodos(flowNodeColumns(true)));
+    }
     if (nErr) return NextResponse.json({ ok: false, error: nErr.message }, { status: 400 });
 
-    const ids = (nodes ?? []).map((n) => n.id as string);
+    /** El `select` es dinámico (con o sin las columnas nuevas), así que la fila llega sin tipar. */
+    const filasNodos = (nodes ?? []) as unknown as Array<Record<string, unknown>>;
+    const ids = filasNodos.map((n) => n.id as string);
     let options: Array<Record<string, unknown>> = [];
     let blocks: Array<Record<string, unknown>> = [];
     if (ids.length) {
@@ -81,7 +89,7 @@ export async function GET(
 
     return NextResponse.json({
       ok: true,
-      items: (nodes ?? []).map((n) => ({
+      items: filasNodos.map((n) => ({
         ...n,
         options: byNode.get(n.id as string) ?? [],
         blocks: blocksByNode.get(n.id as string) ?? [],

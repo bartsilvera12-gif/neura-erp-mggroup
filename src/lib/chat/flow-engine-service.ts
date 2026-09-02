@@ -1,5 +1,6 @@
 import { downloadMetaMediaBytes } from "@/lib/chat/meta-media-download";
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
+import { flowNodeColumns, markMissingFlowNodeColumns } from "@/lib/chat/flow-node-columns";
 import {
   buildCaptureConfirmation,
   checkFlowInput,
@@ -915,16 +916,21 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     flowCode: string,
     nodeCode: string
   ): Promise<FlowNode | null> {
-    const { data, error } = await supabase
-      .from("chat_flow_nodes")
-      .select(
-        "id, empresa_id, flow_code, node_code, message_text, save_as_field, next_node_code, node_type, is_active, input_validation, input_invalid_message, capture_confirm_label"
-      )
-      .eq("empresa_id", empresaId)
-      .eq("flow_code", flowCode)
-      .eq("node_code", nodeCode)
-      .eq("is_active", true)
-      .maybeSingle();
+    const consultar = async (columnas: string) =>
+      supabase
+        .from("chat_flow_nodes")
+        .select(columnas)
+        .eq("empresa_id", empresaId)
+        .eq("flow_code", flowCode)
+        .eq("node_code", nodeCode)
+        .eq("is_active", true)
+        .maybeSingle();
+
+    let { data, error } = await consultar(flowNodeColumns(false));
+    if (error && markMissingFlowNodeColumns(error.message)) {
+      /** Base sin migrar todavía: se reintenta sin las columnas nuevas para no cortar el bot. */
+      ({ data, error } = await consultar(flowNodeColumns(false)));
+    }
     if (error) throw new Error(error.message);
     return (data as FlowNode | null) ?? null;
   }
