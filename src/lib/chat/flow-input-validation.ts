@@ -45,8 +45,14 @@ export function toTitleCaseEs(value: string): string {
 
 export const DEFAULT_INVALID_NUMBER_MESSAGE = "Respondé únicamente el número, por favor. Ej: 2";
 
-/** Tope de seguridad: evita que un pegote de dígitos entre como cantidad. */
-const MAX_NUMBER_DIGITS = 6;
+/**
+ * Tope técnico, no de negocio: evita desbordar el rango seguro de JS con un pegote de
+ * dígitos. El límite real de cada paso se configura con `input_max_value`.
+ *
+ * Estaba en 6 y rechazaba cualquier cédula de 7 dígitos: el tope pensado para la
+ * cantidad de boletas no puede aplicarse a todos los campos numéricos.
+ */
+const MAX_NUMBER_DIGITS = 15;
 
 export function normalizeFlowInputValidation(raw: unknown): FlowInputValidation {
   if (raw === "number") return "number";
