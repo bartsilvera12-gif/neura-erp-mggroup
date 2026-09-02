@@ -41,6 +41,16 @@ export function extractSmbEchoIdentifiersForRouting(msg: Record<string, unknown>
   return { wabaId, to: businessFrom, from: customerTo };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readTrimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function extractMessageContent(msg: Record<string, unknown>): {
   message_type: string;
   content: string | null;
@@ -66,7 +76,32 @@ export function extractMessageContent(msg: Record<string, unknown>): {
   if (t === "sticker") return { message_type: "sticker", content: "[sticker]" };
   if (t === "location") return { message_type: "location", content: "[ubicación]" };
   if (t === "contacts") return { message_type: "contacts", content: "[contacto]" };
-  if (t === "button") return { message_type: "button", content: "[botón]" };
+  if (t === "button") {
+    const b = asRecord(msg.button);
+    const label = readTrimmedString(b?.text) || readTrimmedString(b?.payload);
+    return { message_type: "button", content: label || "[botón]" };
+  }
+  if (t === "interactive") {
+    const inter = asRecord(msg.interactive);
+    // YCloud camelCasea el payload de Meta, pero aceptamos las dos formas por las dudas.
+    const button = asRecord(inter?.buttonReply) ?? asRecord(inter?.button_reply);
+    const buttonId = readTrimmedString(button?.id);
+    if (buttonId) {
+      return {
+        message_type: "interactive",
+        content: readTrimmedString(button?.title) || `[botón:${buttonId}]`,
+      };
+    }
+    const list = asRecord(inter?.listReply) ?? asRecord(inter?.list_reply);
+    const listId = readTrimmedString(list?.id);
+    if (listId) {
+      return {
+        message_type: "interactive",
+        content: readTrimmedString(list?.title) || `[lista:${listId}]`,
+      };
+    }
+    return { message_type: "interactive", content: "[interactivo]" };
+  }
   // Idem Meta: YCloud reenvía el `unsupported` de la Cloud API tal cual.
   console.info("[webhooks/ycloud][insert_message]", "[unsupported-inbound-type]", {
     msgType: msg.type ?? null,
