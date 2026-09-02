@@ -40,6 +40,12 @@ export interface Sorteo {
   coupon_number_start?: number | null;
   coupon_number_mode?: SorteoCouponNumberMode | null;
   coupon_number_limit?: number | null;
+  /** Aviso previo al sorteo por WhatsApp (cron `sorteo-recordatorios`). */
+  recordatorio_previo_enabled?: boolean;
+  recordatorio_previo_dias_antes?: number;
+  recordatorio_previo_template_id?: string | null;
+  recordatorio_previo_campaign_id?: string | null;
+  recordatorio_previo_sent_at?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -43,6 +43,14 @@ function mapSorteo(r: Record<string, unknown>): Sorteo {
       r.coupon_number_limit != null && Number.isFinite(Number(r.coupon_number_limit))
         ? Math.trunc(Number(r.coupon_number_limit))
         : null,
+    recordatorio_previo_enabled: Boolean(r.recordatorio_previo_enabled),
+    recordatorio_previo_dias_antes:
+      r.recordatorio_previo_dias_antes != null && Number.isFinite(Number(r.recordatorio_previo_dias_antes))
+        ? Math.trunc(Number(r.recordatorio_previo_dias_antes))
+        : 1,
+    recordatorio_previo_template_id: (r.recordatorio_previo_template_id as string) ?? null,
+    recordatorio_previo_campaign_id: (r.recordatorio_previo_campaign_id as string) ?? null,
+    recordatorio_previo_sent_at: (r.recordatorio_previo_sent_at as string) ?? null,
   };
 }
 
@@ -86,6 +94,9 @@ export type SorteoInput = {
   coupon_number_start?: number | null;
   coupon_number_mode?: SorteoCouponNumberMode | null;
   coupon_number_limit?: number | null;
+  recordatorio_previo_enabled?: boolean;
+  recordatorio_previo_dias_antes?: number;
+  recordatorio_previo_template_id?: string | null;
 };
 
 export async function createSorteo(input: SorteoInput): Promise<Sorteo> {
@@ -136,6 +147,9 @@ export async function updateSorteo(id: string, input: SorteoInput): Promise<Sort
       coupon_number_start: input.coupon_number_start ?? null,
       coupon_number_mode: input.coupon_number_mode ?? null,
       coupon_number_limit: input.coupon_number_limit ?? null,
+      recordatorio_previo_enabled: input.recordatorio_previo_enabled ?? false,
+      recordatorio_previo_dias_antes: input.recordatorio_previo_dias_antes ?? 1,
+      recordatorio_previo_template_id: input.recordatorio_previo_template_id ?? null,
     }),
   });
   const json = (await res.json()) as { success?: boolean; data?: Record<string, unknown>; error?: string };

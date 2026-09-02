@@ -95,6 +95,13 @@ export default function EditarSorteoPage() {
   const [ticketStub, setTicketStub] = useState("");
   /** Resto de claves de ticket_image_config (colores, show*, paths de storage). */
   const [ticketImageConfigBase, setTicketImageConfigBase] = useState<Record<string, unknown>>({});
+  /** Aviso previo al sorteo: lo dispara el cron `sorteo-recordatorios`. */
+  const [avisoPrevioEnabled, setAvisoPrevioEnabled] = useState(false);
+  const [avisoPrevioDias, setAvisoPrevioDias] = useState(1);
+  const [avisoPrevioTemplateId, setAvisoPrevioTemplateId] = useState("");
+  const [avisoPrevioSentAt, setAvisoPrevioSentAt] = useState<string | null>(null);
+  const [plantillas, setPlantillas] = useState<{ id: string; name: string; language: string | null }[]>([]);
+  const [plantillasError, setPlantillasError] = useState<string | null>(null);
   /** QR con orden, cupones y datos del comprador impreso en el comprobante. */
   const [ticketShowQr, setTicketShowQr] = useState(false);
   const ticketShowQrRef = useRef(false);
@@ -188,6 +195,12 @@ export default function EditarSorteoPage() {
         setTicketCaption(typeof tic.caption === "string" ? tic.caption : "");
         setTicketStub(typeof tic.ticket_image_only_stub === "string" ? tic.ticket_image_only_stub : "");
         setTicketShowQr(tic.showQr === true);
+        setAvisoPrevioEnabled(s.recordatorio_previo_enabled === true);
+        setAvisoPrevioDias(
+          typeof s.recordatorio_previo_dias_antes === "number" ? s.recordatorio_previo_dias_antes : 1
+        );
+        setAvisoPrevioTemplateId(s.recordatorio_previo_template_id ?? "");
+        setAvisoPrevioSentAt(s.recordatorio_previo_sent_at ?? null);
         setCouponNumberingEnabled(Boolean(s.coupon_numbering_enabled));
         setCouponStart(
           s.coupon_number_start != null && Number.isFinite(Number(s.coupon_number_start))
@@ -234,6 +247,46 @@ export default function EditarSorteoPage() {
       if (templateObjectUrl) URL.revokeObjectURL(templateObjectUrl);
     };
   }, [templateObjectUrl]);
+
+  /** Plantillas aprobadas de todos los canales de WhatsApp, para elegir la del aviso previo. */
+  useEffect(() => {
+    void (async () => {
+      try {
+        const optRes = await fetchWithSupabaseSession("/api/campanas/options", { cache: "no-store" });
+        const optJson = (await optRes.json()) as {
+          success?: boolean;
+          data?: { channels?: { id: string }[] };
+          error?: string;
+        };
+        if (!optRes.ok || !optJson.success) throw new Error(optJson.error ?? "No se pudieron leer los canales");
+        const channels = optJson.data?.channels ?? [];
+        if (channels.length === 0) {
+          setPlantillasError("No hay canales de WhatsApp activos.");
+          return;
+        }
+        const listas = await Promise.all(
+          channels.map(async (ch) => {
+            const r = await fetchWithSupabaseSession(
+              `/api/campanas/templates?channel_id=${encodeURIComponent(ch.id)}`,
+              { cache: "no-store" }
+            );
+            const j = (await r.json()) as {
+              success?: boolean;
+              data?: { id: string; name: string; language: string | null }[];
+            };
+            return r.ok && j.success ? j.data ?? [] : [];
+          })
+        );
+        const todas = listas.flat();
+        setPlantillas(todas);
+        setPlantillasError(
+          todas.length === 0 ? "No hay plantillas aprobadas por Meta en este canal todavía." : null
+        );
+      } catch (e) {
+        setPlantillasError(e instanceof Error ? e.message : "No se pudieron cargar las plantillas");
+      }
+    })();
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -320,6 +373,9 @@ export default function EditarSorteoPage() {
           couponNumberingEnabled && couponLimit.trim() !== ""
             ? Math.trunc(Number(couponLimit))
             : null,
+        recordatorio_previo_enabled: avisoPrevioEnabled,
+        recordatorio_previo_dias_antes: avisoPrevioDias,
+        recordatorio_previo_template_id: avisoPrevioTemplateId || null,
       });
       if (updated.ticket_image_config && typeof updated.ticket_image_config === "object") {
         setTicketImageConfigBase({ ...(updated.ticket_image_config as Record<string, unknown>) });
@@ -684,6 +740,98 @@ export default function EditarSorteoPage() {
               </div>
             </div>
           ) : null}
+        </section>
+
+        <section
+          id="aviso-previo"
+          className="rounded-xl border-2 border-sky-300 bg-gradient-to-b from-sky-50/90 to-white p-6 shadow-md space-y-4 scroll-mt-6"
+        >
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Aviso previo al sorteo</h2>
+            <p className="text-xs text-slate-600 mt-1">
+              Manda un mensaje de WhatsApp a los participantes que ya pagaron, unos días antes de la fecha del
+              sorteo. Sale automáticamente y queda registrado como una campaña, que se puede cancelar desde{" "}
+              <span className="font-medium">Campañas</span> mientras se está enviando.
+            </p>
+          </div>
+
+          <label className="flex items-start gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={avisoPrevioEnabled}
+              onChange={(e) => setAvisoPrevioEnabled(e.target.checked)}
+            />
+            <span className="text-sm text-slate-700">
+              <span className="font-medium text-slate-900">Enviar el aviso automáticamente</span>
+              <span className="block text-xs text-slate-600 mt-0.5">
+                Solo a los participantes con pago confirmado de este sorteo.
+              </span>
+            </span>
+          </label>
+
+          {avisoPrevioEnabled && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1" htmlFor="aviso-dias">
+                    Días antes del sorteo
+                  </label>
+                  <input
+                    id="aviso-dias"
+                    type="number"
+                    min={0}
+                    max={30}
+                    className="w-28 border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                    value={avisoPrevioDias}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      setAvisoPrevioDias(Number.isFinite(n) ? Math.min(30, Math.max(0, n)) : 1);
+                    }}
+                  />
+                </div>
+                <div className="flex-1 min-w-[260px]">
+                  <label className="block text-xs font-medium text-slate-600 mb-1" htmlFor="aviso-plantilla">
+                    Plantilla aprobada por Meta
+                  </label>
+                  <select
+                    id="aviso-plantilla"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+                    value={avisoPrevioTemplateId}
+                    onChange={(e) => setAvisoPrevioTemplateId(e.target.value)}
+                  >
+                    <option value="">Elegí una plantilla…</option>
+                    {plantillas.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {p.language ? ` (${p.language})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {plantillasError && (
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  {plantillasError} Fuera de la ventana de 24 h WhatsApp solo entrega plantillas aprobadas, así que
+                  sin una elegida el aviso no sale.
+                </p>
+              )}
+
+              {avisoPrevioEnabled && !avisoPrevioTemplateId && !plantillasError && (
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Elegí una plantilla: sin ella el aviso no se envía.
+                </p>
+              )}
+
+              {avisoPrevioSentAt && (
+                <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  El aviso de este sorteo ya se envió el{" "}
+                  {new Date(avisoPrevioSentAt).toLocaleString("es-PY")}. No se vuelve a mandar solo.
+                </p>
+              )}
+            </div>
+          )}
         </section>
 
         <section

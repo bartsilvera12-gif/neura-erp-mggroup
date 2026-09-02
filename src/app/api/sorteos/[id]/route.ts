@@ -99,6 +99,26 @@ export async function PATCH(
     if (body.ticket_image_config !== undefined && typeof body.ticket_image_config === "object") {
       patch.ticket_image_config = body.ticket_image_config;
     }
+    /** Aviso previo al sorteo (cron `sorteo-recordatorios`). */
+    if (typeof body.recordatorio_previo_enabled === "boolean") {
+      patch.recordatorio_previo_enabled = body.recordatorio_previo_enabled;
+    }
+    if (body.recordatorio_previo_dias_antes !== undefined) {
+      const d = Math.trunc(Number(body.recordatorio_previo_dias_antes));
+      if (!Number.isFinite(d) || d < 0 || d > 30) {
+        return NextResponse.json(errorResponse("recordatorio_previo_dias_antes debe estar entre 0 y 30"), {
+          status: 400,
+        });
+      }
+      patch.recordatorio_previo_dias_antes = d;
+    }
+    if (body.recordatorio_previo_template_id !== undefined) {
+      const t =
+        typeof body.recordatorio_previo_template_id === "string"
+          ? body.recordatorio_previo_template_id.trim()
+          : "";
+      patch.recordatorio_previo_template_id = t || null;
+    }
     if ("coupon_numbering_enabled" in body) {
       const numbering = mergeCouponNumberingFromUnknown(body as Record<string, unknown>);
       if ("error" in numbering) {
