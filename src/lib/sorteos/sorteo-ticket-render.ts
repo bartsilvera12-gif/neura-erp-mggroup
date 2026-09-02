@@ -120,7 +120,16 @@ function cuponesStubSvg(opts: {
     for (const c of cupones) {
       y += fs;
       pieces.push(
-        svgTextAsPath({ text: c, x: cx, y, fontSize: fs, weight: 800, fill: color, textAnchor: "middle" })
+        svgTextAsPath({
+          text: c,
+          x: cx,
+          y,
+          fontSize: fs,
+          weight: 700,
+          fill: color,
+          textAnchor: "middle",
+          family: "mono",
+        })
       );
       y += lineH - fs;
     }
@@ -150,6 +159,7 @@ function cuponesStubSvg(opts: {
         weight: 700,
         fill: color,
         textAnchor: "middle",
+        family: "mono",
       })
     );
   });
@@ -170,7 +180,7 @@ function cuponesStubSvg(opts: {
 }
 
 function anyTooWide(items: string[], fontSize: number, weight: number, maxWidth: number): boolean {
-  return items.some((t) => measureTicketTextWidth(t, fontSize, weight) > maxWidth);
+  return items.some((t) => measureTicketTextWidth(t, fontSize, weight, "mono") > maxWidth);
 }
 
 /**
@@ -211,15 +221,24 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   }
 
   /** Texto alineado a la derecha: el helper solo ancla a izquierda o centro. */
-  const right = (text: string, xRight: number, y: number, fontSize: number, weight: number, fill: string) =>
+  const right = (
+    text: string,
+    xRight: number,
+    y: number,
+    fontSize: number,
+    weight: number,
+    fill: string,
+    family: "sans" | "mono" = "sans"
+  ) =>
     svgTextAsPath({
       text,
-      x: xRight - measureTicketTextWidth(text, fontSize, weight),
+      x: xRight - measureTicketTextWidth(text, fontSize, weight, family),
       y,
       fontSize,
       weight,
       fill,
       textAnchor: "start",
+      family,
     });
 
   // ---------- Cabecera a sangre (sin recuadros) ----------
@@ -283,14 +302,18 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   }
 
   // ---------- Datos: filas con hilo, sin tarjeta ----------
-  const filas: { label: string; value: string }[] = [];
+  const filas: { label: string; value: string; mono: boolean }[] = [];
   if (showNombre && input.clienteNombre?.trim()) {
-    filas.push({ label: "Participante", value: input.clienteNombre.trim() });
+    filas.push({ label: "Participante", value: input.clienteNombre.trim(), mono: false });
   }
-  if (showDoc && input.documento?.trim()) filas.push({ label: "Documento", value: input.documento.trim() });
-  if (showTel && input.telefono?.trim()) filas.push({ label: "Teléfono", value: input.telefono.trim() });
+  if (showDoc && input.documento?.trim()) {
+    filas.push({ label: "Documento", value: input.documento.trim(), mono: true });
+  }
+  if (showTel && input.telefono?.trim()) {
+    filas.push({ label: "Teléfono", value: input.telefono.trim(), mono: true });
+  }
   if (showOrd && String(input.numeroOrden ?? "").trim()) {
-    filas.push({ label: "Nº de orden", value: String(input.numeroOrden).trim() });
+    filas.push({ label: "Nº de orden", value: String(input.numeroOrden).trim(), mono: true });
   }
 
   const ROW_H = 64;
@@ -316,7 +339,8 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
         baseline,
         VALUE_FS,
         700,
-        ink
+        ink,
+        fila.mono ? "mono" : "sans"
       ),
       `<rect x="${PAD}" y="${cursor + ROW_H}" width="${innerW}" height="1.5" fill="${ink}" opacity="0.10"/>`
     );
@@ -400,10 +424,11 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
       text: input.fechaHora,
       x: cx,
       y: fechaBaseline,
-      fontSize: 20,
+      fontSize: 19,
       weight: 400,
       fill: muted,
       textAnchor: "middle",
+      family: "mono",
     })
   );
   if (footer) {

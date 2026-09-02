@@ -1,8 +1,9 @@
 import "server-only";
 
-export type { TicketPathWeight } from "@/lib/sorteos/sorteo-ticket-font-svg-path";
+export type { TicketPathWeight, TicketFontFamily } from "@/lib/sorteos/sorteo-ticket-font-svg-path";
 export {
   getSorteoInterFont,
+  getSorteoTicketFont,
   normalizeTicketFontWeight,
   measureTicketTextWidth,
   svgTextAsPath,

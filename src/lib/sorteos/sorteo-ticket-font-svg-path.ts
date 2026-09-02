@@ -14,27 +14,39 @@ import { create as fontkitCreate, type Font as FontkitFont } from "fontkit";
  */
 export type TicketPathWeight = 400 | 600 | 700 | 800;
 
-const FILE_BY_WEIGHT: Record<TicketPathWeight, string> = {
-  400: "inter-latin-400-normal.woff",
-  600: "inter-latin-600-normal.woff",
-  700: "inter-latin-700-normal.woff",
-  800: "inter-latin-800-normal.woff",
+/**
+ * Familias del comprobante:
+ *  - `sans` (Poppins): títulos, rótulos y nombres.
+ *  - `mono` (Roboto Mono): números de cupón, documento, teléfono y orden. Los dígitos
+ *    de ancho fijo alinean en columna y le dan la lectura de boleta impresa.
+ *  - `inter`: la familia original, para no cambiar lo que ya dependía de ella.
+ */
+export type TicketFontFamily = "sans" | "mono" | "inter";
+
+const FILES: Record<TicketFontFamily, { pkg: string; file: (w: TicketPathWeight) => string }> = {
+  sans: { pkg: "poppins", file: (w) => `poppins-latin-${w}-normal.woff` },
+  /** Roboto Mono no trae 600/800: se mapean al peso disponible más cercano. */
+  mono: {
+    pkg: "roboto-mono",
+    file: (w) => `roboto-mono-latin-${w >= 700 ? 700 : w >= 600 ? 500 : 400}-normal.woff`,
+  },
+  inter: { pkg: "inter", file: (w) => `inter-latin-${w}-normal.woff` },
 };
 
-/** Cache por peso (misma familia Inter). */
-const fontCache = new Map<TicketPathWeight, FontkitFont>();
+const fontCache = new Map<string, FontkitFont>();
 
-function resolveInterWoff(weight: TicketPathWeight): string {
-  const name = FILE_BY_WEIGHT[weight];
+function resolveWoff(family: TicketFontFamily, weight: TicketPathWeight): string {
+  const { pkg, file } = FILES[family];
+  const name = file(weight);
   const candidates = [
     path.join(process.cwd(), "public/sorteos-ticket-fonts", name),
-    path.join(process.cwd(), "node_modules/@fontsource/inter/files", name),
+    path.join(process.cwd(), `node_modules/@fontsource/${pkg}/files`, name),
   ];
   for (const fp of candidates) {
     if (fs.existsSync(fp)) return fp;
   }
   throw new Error(
-    `Inter WOFF no encontrado (${name}). Probado:\n${candidates.map((p) => ` - ${p}`).join("\n")}`
+    `WOFF no encontrado (${name}). Probado:\n${candidates.map((p) => ` - ${p}`).join("\n")}`
   );
 }
 
@@ -45,23 +57,33 @@ export function normalizeTicketFontWeight(w: number): TicketPathWeight {
   return 800;
 }
 
-export function getSorteoInterFont(weight: number): FontkitFont {
+export function getSorteoTicketFont(weight: number, family: TicketFontFamily = "sans"): FontkitFont {
   const w = normalizeTicketFontWeight(weight);
-  const cached = fontCache.get(w);
+  const key = `${family}:${w}`;
+  const cached = fontCache.get(key);
   if (cached) return cached;
-  const fp = resolveInterWoff(w);
-  const raw = fontkitCreate(fs.readFileSync(fp));
+  const raw = fontkitCreate(fs.readFileSync(resolveWoff(family, w)));
   const font = raw as FontkitFont;
-  fontCache.set(w, font);
+  fontCache.set(key, font);
   return font;
 }
 
+/** Compatibilidad con los scripts de QA que ya pedían Inter por nombre. */
+export function getSorteoInterFont(weight: number): FontkitFont {
+  return getSorteoTicketFont(weight, "inter");
+}
+
 /** Ancho del texto en px. Necesario para truncar y para centrar bloques sin que se pisen. */
-export function measureTicketTextWidth(text: string, fontSize: number, weight: number): number {
-  const t = text.replace(/s+/g, " ").trim();
+export function measureTicketTextWidth(
+  text: string,
+  fontSize: number,
+  weight: number,
+  family: TicketFontFamily = "sans"
+): number {
+  const t = text.replace(/\s+/g, " ").trim();
   if (!t) return 0;
   try {
-    const font = getSorteoInterFont(weight);
+    const font = getSorteoTicketFont(weight, family);
     const run = font.layout(t);
     let adv = 0;
     for (const pos of run.positions) adv += pos.xAdvance;
@@ -87,11 +109,12 @@ export function svgTextAsPath(opts: {
   weight: number;
   fill: string;
   textAnchor?: "start" | "middle";
+  family?: TicketFontFamily;
 }): string {
   const t = opts.text.replace(/\s+/g, " ").trim();
   if (!t) return "";
   try {
-    const font = getSorteoInterFont(opts.weight);
+    const font = getSorteoTicketFont(opts.weight, opts.family ?? "sans");
     const fontSize = opts.fontSize;
     const scale = fontSize / font.unitsPerEm;
     const run = font.layout(t);
