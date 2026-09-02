@@ -53,3 +53,17 @@ export function flowInputInvalidMessage(custom: string | null | undefined): stri
   const t = typeof custom === "string" ? custom.trim() : "";
   return t || DEFAULT_INVALID_NUMBER_MESSAGE;
 }
+
+/**
+ * Confirmación del dato recién capturado, para pegar arriba del mensaje del paso
+ * siguiente: «✅ CI: 6160627». Sin etiqueta configurada no se muestra nada.
+ */
+export function buildCaptureConfirmation(
+  label: string | null | undefined,
+  value: string
+): string | undefined {
+  const l = typeof label === "string" ? label.trim() : "";
+  const v = value.trim();
+  if (!l || !v) return undefined;
+  return `✅ ${l}: ${v}`;
+}

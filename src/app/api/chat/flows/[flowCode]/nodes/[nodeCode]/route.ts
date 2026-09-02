@@ -118,6 +118,7 @@ export async function PATCH(
       crm_action_config?: Record<string, unknown> | null;
       input_validation?: string | null;
       input_invalid_message?: string | null;
+      capture_confirm_label?: string | null;
     };
     const patch: Record<string, unknown> = {};
     if (typeof body.node_type === "string") {
@@ -143,6 +144,9 @@ export async function PATCH(
     }
     if ("input_invalid_message" in body) {
       patch.input_invalid_message = body.input_invalid_message?.trim() || null;
+    }
+    if ("capture_confirm_label" in body) {
+      patch.capture_confirm_label = body.capture_confirm_label?.trim().slice(0, 60) || null;
     }
     if ("crm_action_type" in body) patch.crm_action_type = body.crm_action_type?.trim() || null;
     if ("crm_action_config" in body) {

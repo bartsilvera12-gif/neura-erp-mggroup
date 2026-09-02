@@ -20,7 +20,7 @@ export async function GET(
     const { data: nodes, error: nErr } = await supabase
       .from("chat_flow_nodes")
       .select(
-        "id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, input_validation, input_invalid_message, created_at"
+        "id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, input_validation, input_invalid_message, capture_confirm_label, created_at"
       )
       .eq("empresa_id", auth.empresa_id)
       .eq("flow_code", flowCode)

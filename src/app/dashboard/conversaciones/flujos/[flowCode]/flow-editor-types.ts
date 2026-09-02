@@ -47,6 +47,8 @@ export type FlowNode = {
   /** Captura de texto: qué se espera del cliente y qué repreguntar si no llega. */
   input_validation?: string | null;
   input_invalid_message?: string | null;
+  /** Etiqueta del «✅ …» que confirma el dato capturado, pegado al mensaje siguiente. */
+  capture_confirm_label?: string | null;
   options: FlowNodeOption[];
   blocks: FlowNodeBlock[];
 };

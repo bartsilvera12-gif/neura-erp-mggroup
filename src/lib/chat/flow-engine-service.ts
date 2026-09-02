@@ -1,6 +1,7 @@
 import { downloadMetaMediaBytes } from "@/lib/chat/meta-media-download";
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
 import {
+  buildCaptureConfirmation,
   checkFlowInput,
   flowInputInvalidMessage,
   normalizeFlowInputValidation,
@@ -120,6 +121,12 @@ export type SendCurrentNodeParams = {
   mergeFlowVars?: Record<string, string>;
   /** Sorteo image_only: ticket ya enviado; no reenviar el cuerpo largo del nodo (solo rama legacy sin bloques). */
   suppressPlainTextBody?: boolean;
+  /**
+   * Texto que se pega arriba del primer mensaje del nodo, en la misma burbuja.
+   * Se usa para confirmar el dato recién capturado («✅ CI: 6160627») sin gastar
+   * un mensaje aparte.
+   */
+  prependText?: string;
 };
 
 type FlowOption = {
@@ -170,6 +177,8 @@ type FlowNode = {
   /** Captura de texto: qué se espera y qué repreguntar si no llega eso. */
   input_validation?: string | null;
   input_invalid_message?: string | null;
+  /** Etiqueta del «✅ …» que confirma el dato capturado. */
+  capture_confirm_label?: string | null;
 };
 
 type FlowNodeBlock = {
@@ -909,7 +918,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     const { data, error } = await supabase
       .from("chat_flow_nodes")
       .select(
-        "id, empresa_id, flow_code, node_code, message_text, save_as_field, next_node_code, node_type, is_active, input_validation, input_invalid_message"
+        "id, empresa_id, flow_code, node_code, message_text, save_as_field, next_node_code, node_type, is_active, input_validation, input_invalid_message, capture_confirm_label"
       )
       .eq("empresa_id", empresaId)
       .eq("flow_code", flowCode)
@@ -1748,14 +1757,26 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     };
     const blocks = await getNodeBlocks(node);
 
+    /** La confirmación se pega al primer texto que salga del nodo, una sola vez. */
+    let prefijoPendiente = params.prependText?.trim() ?? "";
+    const conConfirmacion = (texto: string): string => {
+      if (!prefijoPendiente) return texto;
+      const prefijo = prefijoPendiente;
+      prefijoPendiente = "";
+      return texto.trim() ? `${prefijo}
+
+${texto}` : prefijo;
+    };
+
     // Compatibilidad: si el nodo aún no tiene bloques, mantiene comportamiento legacy.
     if (blocks.length === 0) {
-      const bodyText =
+      const bodyText = conConfirmacion(
         node.node_type === "buttons" || node.node_type === "list"
           ? params.suppressPlainTextBody
             ? SORTEO_TICKET_DEFAULT_STUB
             : fallbackText
-          : fallbackText;
+          : fallbackText
+      );
       if (node.node_type === "buttons" || node.node_type === "list") {
         if (ctxSend.provider !== "meta") {
           return {
@@ -1932,7 +1953,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           continue;
         }
         const textRaw = block.content_text?.trim();
-        const text = textRaw ? interpolateTemplate(textRaw, flowVars) : "";
+        const text = conConfirmacion(textRaw ? interpolateTemplate(textRaw, flowVars) : "");
         if (!text) continue;
         const send = await flowSendText(ctxSend, text);
         if (!send.ok) return { ok: false, error: send.error };
@@ -1988,9 +2009,11 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           return { ok: false, error: ycloudOutboundUnsupportedMessage("botones interactivos") };
         }
         const bodyTextRaw = block.content_text?.trim() || fallbackText;
-        const bodyText = params.suppressPlainTextBody
-          ? SORTEO_TICKET_DEFAULT_STUB
-          : interpolateTemplate(bodyTextRaw, flowVars);
+        const bodyText = conConfirmacion(
+          params.suppressPlainTextBody
+            ? SORTEO_TICKET_DEFAULT_STUB
+            : interpolateTemplate(bodyTextRaw, flowVars)
+        );
         console.info("[flow-options]", "choices_block_buttons", {
           conversation_id: state.id,
           node_code: node.node_code,
@@ -3621,7 +3644,10 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       },
     });
 
-    const sent = await sendCurrentFlowNode({ conversationId: state.id });
+    const sent = await sendCurrentFlowNode({
+      conversationId: state.id,
+      prependText: buildCaptureConfirmation(currentNode.capture_confirm_label, capturedValue),
+    });
     if (!sent.ok) {
       return { ok: false, status: "send_next_node_failed", error: sent.error };
     }

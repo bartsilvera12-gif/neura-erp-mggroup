@@ -540,6 +540,27 @@ export function FlowNodeCard(props: FlowNodeCardProps) {
                 {node.node_type === "text" && node.save_as_field?.trim() && (
                   <div className="mt-3 space-y-2 rounded-lg border border-sky-200 bg-sky-50/60 p-2.5">
                     <div>
+                      <label className="block text-xs text-slate-600 mb-1" htmlFor={`node-confirm-${node.id}`}>
+                        Confirmar el dato al pasar al siguiente paso
+                      </label>
+                      <input
+                        id={`node-confirm-${node.id}`}
+                        className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full bg-white"
+                        placeholder="Ej: CI, Nombre, Ciudad (vacío = sin confirmación)"
+                        value={node.capture_confirm_label ?? ""}
+                        onChange={(e) =>
+                          props.onPatchNode(node.id, { capture_confirm_label: e.target.value || null })
+                        }
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Con etiqueta, el bot arranca el mensaje del paso siguiente con{" "}
+                        <span className="font-mono">
+                          ✅ {node.capture_confirm_label?.trim() || "CI"}: 6160627
+                        </span>{" "}
+                        y sigue con la pregunta, todo en el mismo mensaje.
+                      </p>
+                    </div>
+                    <div>
                       <label className="block text-xs text-slate-600 mb-1" htmlFor={`node-input-val-${node.id}`}>
                         Qué tiene que responder el cliente
                       </label>

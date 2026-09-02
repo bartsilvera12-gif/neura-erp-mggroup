@@ -500,6 +500,7 @@ export default function FlowEditorPage() {
           crm_action_config: node.crm_action_config ?? {},
           input_validation: node.input_validation ?? "none",
           input_invalid_message: node.input_invalid_message ?? null,
+          capture_confirm_label: node.capture_confirm_label ?? null,
         }),
       }
     );

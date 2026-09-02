@@ -348,6 +348,7 @@ export function mergeServerNodesPreservingDirty(
       crm_action_type: local.crm_action_type,
       input_validation: local.input_validation,
       input_invalid_message: local.input_invalid_message,
+      capture_confirm_label: local.capture_confirm_label,
       blocks: serverNode.blocks.map((b) => {
         const lb = localBlockById.get(b.id);
         return lb ? { ...b, content_text: lb.content_text, media_url: lb.media_url } : b;
