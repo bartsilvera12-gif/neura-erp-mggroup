@@ -76,7 +76,7 @@ export function FlowNodeOptionsEditor({
   const grouped = buttonGroupsEnabledForNode(node);
 
   return (
-    <section className="border border-slate-200 rounded-lg p-3 space-y-3 bg-white">
+    <section className="space-y-3 border-t border-slate-100 pt-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
           {isList ? "Opciones de lista" : "Botones del cliente"}
@@ -138,7 +138,7 @@ export function FlowNodeOptionsEditor({
               </div>
             )}
 
-            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+            <div className="rounded-lg border border-slate-200 p-3 space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-slate-500 mb-1" htmlFor={`opt-label-${opt.id}`}>
@@ -180,8 +180,8 @@ export function FlowNodeOptionsEditor({
               </div>
 
               {!isList && (
-                <details className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <summary className="cursor-pointer text-xs font-medium text-slate-600">
+                <details>
+                  <summary className="cursor-pointer text-xs text-[#0EA5E9] hover:underline w-fit">
                     Orden y agrupación
                   </summary>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
@@ -231,8 +231,8 @@ export function FlowNodeOptionsEditor({
                 </details>
               )}
 
-              <details className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <summary className="cursor-pointer text-xs font-medium text-slate-600">
+              <details>
+                <summary className="cursor-pointer text-xs text-[#0EA5E9] hover:underline w-fit">
                   Datos que guarda esta opción (cantidad, monto, promo…)
                 </summary>
                 <div className="pt-2 space-y-2">

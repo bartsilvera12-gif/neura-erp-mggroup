@@ -43,7 +43,7 @@ export function FlowNodeBlocksEditor({
   const blocks = visibleBlocksForEditor(node);
 
   return (
-    <section className="border border-slate-200 rounded-lg p-3 space-y-3 bg-white">
+    <section className="space-y-3 border-t border-slate-100 pt-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Bloques del mensaje</h3>
@@ -71,7 +71,7 @@ export function FlowNodeBlocksEditor({
       )}
 
       {blocks.map((block, bi) => (
-        <div key={block.id} className="bg-slate-50/70 border border-slate-200 rounded-lg p-3 space-y-2">
+        <div key={block.id} className="border border-slate-200 rounded-lg p-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-medium text-slate-600">
               Bloque #{bi + 1} · {BLOCK_TYPE_LABEL[block.block_type]}

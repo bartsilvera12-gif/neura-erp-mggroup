@@ -73,7 +73,8 @@ export default function FlowEditorPage() {
   const [deletingNodeId, setDeletingNodeId] = useState<string | null>(null);
   const [togglingActiveNodeId, setTogglingActiveNodeId] = useState<string | null>(null);
   const [reorderBusy, setReorderBusy] = useState(false);
-  const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
+  /** Varios pasos pueden estar abiertos a la vez: abrir uno ya no cierra el que estabas mirando. */
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(() => new Set());
   const [nodeQuery, setNodeQuery] = useState("");
   const [optionPayloadDrafts, setOptionPayloadDrafts] = useState<Record<string, string>>({});
   const [optionEditorMode, setOptionEditorMode] = useState<Record<string, "simple" | "advanced">>({});
@@ -456,7 +457,7 @@ export default function FlowEditorPage() {
       setNewNodeCode("");
       const reloaded = await reload();
       const created = reloaded.find((n) => n.node_code === trimmedCode);
-      setExpandedNodeId(created?.id ?? null);
+      if (created) setExpandedNodeIds((prev) => new Set(prev).add(created.id));
       setSuccess(`Paso ${prettifyCode(trimmedCode)} creado.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error creando el paso");
@@ -575,7 +576,7 @@ export default function FlowEditorPage() {
   }
 
   function handleToggleExpand(node: FlowNode) {
-    const closing = expandedNodeId === node.id;
+    const closing = expandedNodeIds.has(node.id);
     if (closing && dirtyNodeIds.has(node.id)) {
       const ok = globalThis.confirm(
         `El paso «${node.node_code}» tiene cambios sin guardar. ¿Cerrar y descartarlos?`
@@ -584,7 +585,12 @@ export default function FlowEditorPage() {
       clearDirty(node.id);
       void reload({ soft: true });
     }
-    setExpandedNodeId(closing ? null : node.id);
+    setExpandedNodeIds((prev) => {
+      const next = new Set(prev);
+      if (closing) next.delete(node.id);
+      else next.add(node.id);
+      return next;
+    });
   }
 
   function handleDiscardChanges(node: FlowNode) {
@@ -630,7 +636,12 @@ export default function FlowEditorPage() {
         return;
       }
       if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo eliminar el paso");
-      setExpandedNodeId((prev) => (prev === node.id ? null : prev));
+      setExpandedNodeIds((prev) => {
+        if (!prev.has(node.id)) return prev;
+        const next = new Set(prev);
+        next.delete(node.id);
+        return next;
+      });
       clearDirty(node.id);
       setSuccess(`Paso «${node.node_code}» eliminado.`);
       await reload();
@@ -1415,7 +1426,7 @@ export default function FlowEditorPage() {
                   key={node.id}
                   node={node}
                   index={index}
-                  isExpanded={expandedNodeId === node.id}
+                  isExpanded={expandedNodeIds.has(node.id)}
                   isDirty={dirtyNodeIds.has(node.id)}
                   isSaving={savingNodeId === node.id}
                   isDeleting={deletingNodeId === node.id}
