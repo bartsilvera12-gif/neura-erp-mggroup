@@ -1,6 +1,7 @@
 import { downloadMetaMediaBytes } from "@/lib/chat/meta-media-download";
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
 import { flowNodeColumns, markMissingFlowNodeColumns } from "@/lib/chat/flow-node-columns";
+import { buildMontoCalculadoVars } from "@/lib/chat/flow-monto-calculado";
 import {
   buildCaptureConfirmation,
   checkFlowInput,
@@ -1752,7 +1753,22 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       flowSessionId: state.active_flow_session_id,
       traceReadContext: "send_current_node_confirmacion_resumen",
     });
-    const flowVars = { ...flowVarsBase, ...(params.mergeFlowVars ?? {}) };
+    const flowVarsConMerge = { ...flowVarsBase, ...(params.mergeFlowVars ?? {}) };
+    /**
+     * Total calculado a partir de la cantidad y el precio del sorteo. Va antes del merge
+     * explícito para que un monto ya cargado (promo) siga mandando.
+     */
+    const montoVars = await buildMontoCalculadoVars({
+      supabase,
+      empresaId: state.empresa_id,
+      flowCode: state.flow_code,
+      flowData: flowVarsConMerge,
+    });
+    const flowVars: Record<string, string> = { ...flowVarsConMerge };
+    /** Lo calculado solo rellena huecos: si el flujo ya trae el dato, ese manda. */
+    for (const [clave, valor] of Object.entries(montoVars)) {
+      if (!String(flowVars[clave] ?? "").trim()) flowVars[clave] = valor;
+    }
     const sumV = summarizeFlowDataForTrace(flowVars);
     flowTrace("send_node_interpolate", {
       conversation_id: state.id,
