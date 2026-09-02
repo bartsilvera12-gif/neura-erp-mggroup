@@ -54,16 +54,23 @@ export function normalizeFlowInputValidation(raw: unknown): FlowInputValidation 
   return "none";
 }
 
+/** Motivos por los que se repregunta en vez de avanzar. */
+export type FlowInputFailReason = "not_a_number" | "out_of_range" | "over_max";
+
 export type FlowInputCheck =
   | { ok: true; value: string }
-  | { ok: false; reason: "not_a_number" | "out_of_range" };
+  | { ok: false; reason: FlowInputFailReason };
 
 /**
  * Acepta solo dígitos, tolerando espacios y separadores de miles que la gente
  * escribe sin pensar («1.000», «1 000»). No interpreta palabras: si el cliente
  * escribe «dos» o «quiero 3 boletas» se repregunta, que es lo pedido.
  */
-export function checkFlowInput(value: string, validation: FlowInputValidation): FlowInputCheck {
+export function checkFlowInput(
+  value: string,
+  validation: FlowInputValidation,
+  maxValue?: number | null
+): FlowInputCheck {
   if (validation === "title_case") return { ok: true, value: toTitleCaseEs(value) };
   if (validation !== "number") return { ok: true, value: value.trim() };
 
@@ -84,11 +91,24 @@ export function checkFlowInput(value: string, validation: FlowInputValidation): 
   if (digitos.length > MAX_NUMBER_DIGITS) return { ok: false, reason: "out_of_range" };
   const n = Number(digitos);
   if (!Number.isFinite(n) || n <= 0) return { ok: false, reason: "out_of_range" };
+  const tope = typeof maxValue === "number" && Number.isFinite(maxValue) && maxValue > 0 ? maxValue : null;
+  if (tope != null && n > tope) return { ok: false, reason: "over_max" };
   /** Se guarda normalizado: «01» y «1 » quedan iguales para el resto del flujo. */
   return { ok: true, value: String(n) };
 }
 
-export function flowInputInvalidMessage(custom: string | null | undefined): string {
+export function flowInputInvalidMessage(
+  custom: string | null | undefined,
+  reason?: FlowInputFailReason,
+  maxValue?: number | null
+): string {
+  /**
+   * Pasarse del tope necesita su propio texto: el mensaje configurado habla de responder
+   * un numero, y el cliente ya respondio uno. Hay que decirle cual es el maximo.
+   */
+  if (reason === "over_max" && typeof maxValue === "number" && maxValue > 0) {
+    return `Podés comprar hasta ${maxValue} por compra. Respondé un número entre 1 y ${maxValue}.`;
+  }
   const t = typeof custom === "string" ? custom.trim() : "";
   return t || DEFAULT_INVALID_NUMBER_MESSAGE;
 }

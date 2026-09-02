@@ -537,7 +537,8 @@ export function FlowNodeCard(props: FlowNodeCardProps) {
                     siguiente paso igual ocurre).
                   </p>
                 )}
-                {node.node_type === "text" && node.save_as_field?.trim() && (
+                {(node.node_type === "text" || node.node_type === "media") &&
+                  node.save_as_field?.trim() && (
                   <div className="mt-3 space-y-2 rounded-lg border border-sky-200 bg-sky-50/60 p-2.5">
                     <div>
                       <label className="block text-xs text-slate-600 mb-1" htmlFor={`node-confirm-${node.id}`}>
@@ -581,6 +582,31 @@ export function FlowNodeCard(props: FlowNodeCardProps) {
                         </option>
                       </select>
                     </div>
+                    {node.input_validation === "number" && (
+                      <div>
+                        <label className="block text-xs text-slate-600 mb-1" htmlFor={`node-input-max-${node.id}`}>
+                          Máximo por compra (opcional)
+                        </label>
+                        <input
+                          id={`node-input-max-${node.id}`}
+                          type="number"
+                          min={1}
+                          className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-32 bg-white"
+                          placeholder="Sin tope"
+                          value={node.input_max_value ?? ""}
+                          onChange={(e) => {
+                            const n = parseInt(e.target.value, 10);
+                            props.onPatchNode(node.id, {
+                              input_max_value: Number.isFinite(n) && n > 0 ? n : null,
+                            });
+                          }}
+                        />
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Si pide más, el bot avisa el tope y vuelve a preguntar. Vacío = sin límite (igual frena
+                          cuando no hay stock).
+                        </p>
+                      </div>
+                    )}
                     {node.input_validation === "number" && (
                       <div>
                         <label className="block text-xs text-slate-600 mb-1" htmlFor={`node-input-msg-${node.id}`}>

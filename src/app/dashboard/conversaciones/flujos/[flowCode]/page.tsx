@@ -501,6 +501,7 @@ export default function FlowEditorPage() {
           input_validation: node.input_validation ?? "none",
           input_invalid_message: node.input_invalid_message ?? null,
           capture_confirm_label: node.capture_confirm_label ?? null,
+          input_max_value: node.input_max_value ?? null,
         }),
       }
     );

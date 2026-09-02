@@ -11,13 +11,13 @@ const BASE =
   "id, empresa_id, flow_code, node_code, message_text, save_as_field, next_node_code, node_type, is_active";
 
 /** Agregadas por las migraciones de validación de captura y confirmación. */
-const NUEVAS = "input_validation, input_invalid_message, capture_confirm_label";
+const NUEVAS = "input_validation, input_invalid_message, capture_confirm_label, input_max_value";
 
 export const FLOW_NODE_COLUMNS_FULL = `${BASE}, ${NUEVAS}`;
 export const FLOW_NODE_COLUMNS_LEGACY = BASE;
 
 export const FLOW_NODE_LIST_COLUMNS_FULL =
-  "id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, input_validation, input_invalid_message, capture_confirm_label, created_at";
+  "id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, input_validation, input_invalid_message, capture_confirm_label, input_max_value, created_at";
 export const FLOW_NODE_LIST_COLUMNS_LEGACY =
   "id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, created_at";
 

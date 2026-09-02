@@ -49,6 +49,8 @@ export type FlowNode = {
   input_invalid_message?: string | null;
   /** Etiqueta del «✅ …» que confirma el dato capturado, pegado al mensaje siguiente. */
   capture_confirm_label?: string | null;
+  /** Tope de la respuesta numérica; null = sin tope. */
+  input_max_value?: number | null;
   options: FlowNodeOption[];
   blocks: FlowNodeBlock[];
 };

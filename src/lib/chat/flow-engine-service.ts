@@ -180,7 +180,25 @@ type FlowNode = {
   input_invalid_message?: string | null;
   /** Etiqueta del «✅ …» que confirma el dato capturado. */
   capture_confirm_label?: string | null;
+  /** Tope de la respuesta numérica (p. ej. 20 boletas por compra). */
+  input_max_value?: number | null;
 };
+
+/**
+ * ¿Este paso espera que el cliente escriba algo y lo guarda?
+ *
+ * Incluye `media` a propósito: así una burbuja de imagen con texto puede pedir la
+ * cantidad y esperar la respuesta, sin necesidad de un segundo paso que repita la
+ * pregunta. Sin `save_as_field` no hay nada que capturar y el paso sigue de largo.
+ */
+function esNodoDeCaptura(node: {
+  node_type?: string | null;
+  save_as_field?: string | null;
+} | null | undefined): boolean {
+  if (!node) return false;
+  const tipo = node.node_type ?? "";
+  return (tipo === "text" || tipo === "media") && Boolean(node.save_as_field?.trim());
+}
 
 type FlowNodeBlock = {
   id: string;
@@ -836,9 +854,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       );
       if (already) {
         const nodeForCapture = await getNode(state.empresa_id, flowCode, nodeCode);
-        const acceptsAlreadyPresented = Boolean(
-          nodeForCapture?.node_type === "text" && nodeForCapture.save_as_field?.trim()
-        );
+        const acceptsAlreadyPresented = esNodoDeCaptura(nodeForCapture);
         console.info(logPrefix, "skip: node_already_sent", {
           conversationId: state.id,
           flowCode,
@@ -883,9 +899,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
 
       const presentedNodeCode = sent.nodeCode ?? nodeCode;
       const presentedNode = await getNode(state.empresa_id, flowCode.trim(), presentedNodeCode);
-      const acceptsInboundTextAsCapture = Boolean(
-        presentedNode?.node_type === "text" && presentedNode.save_as_field?.trim()
-      );
+      const acceptsInboundTextAsCapture = esNodoDeCaptura(presentedNode);
 
       console.info(logPrefix, "ok: node_presented", {
         conversationId: state.id,
@@ -1445,7 +1459,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     const canAutoAdvance =
       Boolean(node.next_node_code) &&
       !["buttons", "list", "image_input", "human", "end"].includes(node.node_type) &&
-      !(node.node_type === "text" && Boolean(node.save_as_field?.trim()));
+      !esNodoDeCaptura(node);
     if (!canAutoAdvance || !node.next_node_code || !state.flow_code) return null;
 
     console.info("[flow-engine] auto_chain_after_outbound", {
@@ -3459,7 +3473,7 @@ ${texto}` : prefijo;
       });
       return { ok: true, status: "image_expected_text_received" };
     }
-    if (currentNode.node_type !== "text" || !currentNode.save_as_field?.trim()) {
+    if (!esNodoDeCaptura(currentNode)) {
       return { ok: true, status: "ignored_not_text_node" };
     }
 
@@ -3469,9 +3483,13 @@ ${texto}` : prefijo;
      * «quiero 3 boletas» entraba como cantidad y rompía el monto de la compra.
      */
     const validation = normalizeFlowInputValidation(currentNode.input_validation);
-    const check = checkFlowInput(textValue, validation);
+    const check = checkFlowInput(textValue, validation, currentNode.input_max_value);
     if (!check.ok) {
-      const aviso = flowInputInvalidMessage(currentNode.input_invalid_message);
+      const aviso = flowInputInvalidMessage(
+        currentNode.input_invalid_message,
+        check.reason,
+        currentNode.input_max_value
+      );
       const sendCtx = await getConversationSendContext(state.id);
       const send = await flowSendText(sendCtx, aviso);
       if (send.ok) {

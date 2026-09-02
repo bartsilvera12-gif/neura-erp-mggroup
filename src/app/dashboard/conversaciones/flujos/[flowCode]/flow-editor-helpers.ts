@@ -349,6 +349,7 @@ export function mergeServerNodesPreservingDirty(
       input_validation: local.input_validation,
       input_invalid_message: local.input_invalid_message,
       capture_confirm_label: local.capture_confirm_label,
+      input_max_value: local.input_max_value,
       blocks: serverNode.blocks.map((b) => {
         const lb = localBlockById.get(b.id);
         return lb ? { ...b, content_text: lb.content_text, media_url: lb.media_url } : b;

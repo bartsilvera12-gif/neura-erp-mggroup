@@ -120,6 +120,7 @@ export async function PATCH(
       input_validation?: string | null;
       input_invalid_message?: string | null;
       capture_confirm_label?: string | null;
+      input_max_value?: number | string | null;
     };
     const patch: Record<string, unknown> = {};
     if (typeof body.node_type === "string") {
@@ -148,6 +149,18 @@ export async function PATCH(
     }
     if ("capture_confirm_label" in body) {
       patch.capture_confirm_label = body.capture_confirm_label?.trim().slice(0, 60) || null;
+    }
+    if ("input_max_value" in body) {
+      const raw = body.input_max_value;
+      if (raw === null || raw === "" || raw === undefined) {
+        patch.input_max_value = null;
+      } else {
+        const n = Math.trunc(Number(raw));
+        if (!Number.isFinite(n) || n < 1 || n > 100000) {
+          return NextResponse.json({ ok: false, error: "input_max_value inválido" }, { status: 400 });
+        }
+        patch.input_max_value = n;
+      }
     }
     if ("crm_action_type" in body) patch.crm_action_type = body.crm_action_type?.trim() || null;
     if ("crm_action_config" in body) {
@@ -210,6 +223,7 @@ export async function PATCH(
       delete sinNuevas.input_validation;
       delete sinNuevas.input_invalid_message;
       delete sinNuevas.capture_confirm_label;
+      delete sinNuevas.input_max_value;
       ({ data, error } = await guardar(sinNuevas));
     }
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
