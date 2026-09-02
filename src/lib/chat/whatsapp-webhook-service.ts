@@ -243,7 +243,17 @@ export function extractInboundComprobanteMedia(msg: MetaInboundMessage): {
   return null;
 }
 
-/** Evita reprocesar la misma imagen si ya hay image_received con este wa_message_id (reintentos webhook). */
+/** Marca de reserva: se escribe ANTES de procesar la imagen (ver `claimInboundImage`). */
+const IMAGE_CLAIM_EVENT = "image_processing_claimed";
+
+/**
+ * Evita reprocesar la misma imagen (reintentos de webhook).
+ *
+ * Mira tanto la reserva previa como el `image_received` final. El `image_received` se
+ * escribe recién al terminar de bajar el archivo y armar la orden, o sea ~30 s después:
+ * Meta reintenta mucho antes de eso y, sin la reserva, el reintento arrancaba de nuevo
+ * toda la cadena y el cliente recibía cada mensaje dos veces.
+ */
 async function flowImageInboundAlreadyRecorded(
   supabase: SupabaseAdmin,
   conversationId: string,
@@ -253,14 +263,51 @@ async function flowImageInboundAlreadyRecorded(
     .from("chat_flow_events")
     .select("payload")
     .eq("conversation_id", conversationId)
-    .eq("event_type", "image_received")
+    .in("event_type", ["image_received", IMAGE_CLAIM_EVENT])
     .order("created_at", { ascending: false })
-    .limit(25);
+    .limit(50);
   if (error || !rows?.length) return false;
   return rows.some((r) => {
     const p = r.payload as Record<string, unknown> | null | undefined;
     return typeof p?.wa_message_id === "string" && p.wa_message_id === waMessageId;
   });
+}
+
+/**
+ * Reserva el procesamiento de una imagen entrante. Devuelve false si ya estaba reservada.
+ *
+ * La reserva es una fila liviana escrita antes del trabajo pesado; si la escritura falla,
+ * se sigue igual: es preferible un mensaje repetido a perder el comprobante del cliente.
+ */
+async function claimInboundImage(
+  supabase: SupabaseAdmin,
+  params: {
+    empresaId: string;
+    conversationId: string;
+    waMessageId: string;
+    flowCode: string | null;
+    nodeCode: string | null;
+  }
+): Promise<boolean> {
+  if (await flowImageInboundAlreadyRecorded(supabase, params.conversationId, params.waMessageId)) {
+    return false;
+  }
+  const { error } = await supabase.from("chat_flow_events").insert({
+    empresa_id: params.empresaId,
+    conversation_id: params.conversationId,
+    flow_code: params.flowCode,
+    node_code: params.nodeCode,
+    event_type: IMAGE_CLAIM_EVENT,
+    payload: { wa_message_id: params.waMessageId, claimed_at: new Date().toISOString() },
+  });
+  if (error) {
+    console.warn("[flow-image-input]", "claim_failed_continua_igual", {
+      conversationId: params.conversationId,
+      waMessageId: params.waMessageId,
+      message: error.message,
+    });
+  }
+  return true;
 }
 
 function extractMetaButtonId(msg: MetaInboundMessage): string | null {
@@ -1822,8 +1869,15 @@ export async function processInboundWebhookValue(
             skippedReason,
           });
         } else {
-          const alreadyRecorded = await flowImageInboundAlreadyRecorded(supabase, conversationId, waMid);
-          if (alreadyRecorded) {
+          /** Reserva antes del trabajo pesado: si otro request ya la tomó, este no reprocesa. */
+          const claimed = await claimInboundImage(supabase, {
+            empresaId,
+            conversationId,
+            waMessageId: waMid,
+            flowCode: (existingConv as { flow_code?: string | null }).flow_code ?? null,
+            nodeCode: (existingConv as { flow_current_node?: string | null }).flow_current_node ?? null,
+          });
+          if (!claimed) {
             console.info("[flow-image-input]", "[skipped-reason]", {
               conversationId,
               waMessageId: waMid,
