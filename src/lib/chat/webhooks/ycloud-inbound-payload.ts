@@ -1,3 +1,7 @@
+import {
+  inboundUnsupportedLabel,
+  readInboundErrorTitle,
+} from "@/lib/chat/inbound-unsupported-label";
 import type { YCloudInboundIdentifiers } from "@/lib/chat/webhooks/ycloud-match";
 
 export type YCloudWebhookEnvelope = {
@@ -63,7 +67,13 @@ export function extractMessageContent(msg: Record<string, unknown>): {
   if (t === "location") return { message_type: "location", content: "[ubicación]" };
   if (t === "contacts") return { message_type: "contacts", content: "[contacto]" };
   if (t === "button") return { message_type: "button", content: "[botón]" };
-  return { message_type: t || "unknown", content: `[${t || "mensaje"}]` };
+  // Idem Meta: YCloud reenvía el `unsupported` de la Cloud API tal cual.
+  console.info("[webhooks/ycloud][insert_message]", "[unsupported-inbound-type]", {
+    msgType: msg.type ?? null,
+    normalizedType: t,
+    errorTitle: readInboundErrorTitle(msg),
+  });
+  return { message_type: t || "unknown", content: inboundUnsupportedLabel(t) };
 }
 
 export function extractExternalMessageId(msg: Record<string, unknown>): string {

@@ -23,6 +23,10 @@ import {
   sendOutboundTextMessage,
 } from "@/lib/chat/conversation-send-context";
 import { attachInboundMessageMedia } from "@/lib/chat/inbound-media-attach";
+import {
+  inboundUnsupportedLabel,
+  readInboundErrorTitle,
+} from "@/lib/chat/inbound-unsupported-label";
 import { fetchChatChannelConfigForWebhookWakeKeywords } from "@/lib/chat/fetch-channel-config-webhook";
 import { maybeRestartForPurchaseIntent } from "@/lib/chat/flow-restart-intent";
 import {
@@ -156,8 +160,20 @@ export function extractMessageBody(msg: MetaInboundMessage): { message_type: str
       }
       return { message_type: "interactive", content: "[interactive]" };
     }
-    default:
-      return { message_type: (msg.type ?? "unknown").trim() || "unknown", content: `[${t}]` };
+    default: {
+      // Meta anuncia como `unsupported` lo que su API no sabe representar; no hay
+      // contenido recuperable, así que solo cuidamos que la UI no muestre el tipo crudo.
+      const errorTitle = readInboundErrorTitle(msg);
+      console.info(WH_MSG, "[unsupported-inbound-type]", {
+        msgType: msg.type ?? null,
+        normalizedType: t,
+        errorTitle,
+      });
+      return {
+        message_type: (msg.type ?? "unknown").trim() || "unknown",
+        content: inboundUnsupportedLabel(t),
+      };
+    }
   }
 }
 
