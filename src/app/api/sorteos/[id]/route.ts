@@ -43,6 +43,15 @@ export async function GET(
 /**
  * PATCH /api/sorteos/:id
  */
+/** PostgREST avisa la columna faltante con este texto; también sirve el mensaje del shim PG. */
+function esColumnaAusente(message: string | null | undefined): boolean {
+  const m = (message ?? "").toLowerCase();
+  return (
+    (m.includes("column") || m.includes("schema cache")) &&
+    (m.includes("does not exist") || m.includes("could not find"))
+  );
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -128,13 +137,24 @@ export async function PATCH(
     }
 
     const sb = await getChatServiceClientForEmpresa(empresaId);
-    const { data, error } = await sb
-      .from("sorteos")
-      .update(patch)
-      .eq("id", id)
-      .eq("empresa_id", empresaId)
-      .select("*")
-      .maybeSingle();
+    const guardar = async (cambios: Record<string, unknown>) =>
+      sb.from("sorteos").update(cambios).eq("id", id).eq("empresa_id", empresaId).select("*").maybeSingle();
+
+    let { data, error } = await guardar(patch);
+    if (error && esColumnaAusente(error.message)) {
+      /**
+       * Base sin migrar: se guarda el resto en vez de bloquear la edición entera del
+       * sorteo por las columnas del aviso previo, que son opcionales.
+       */
+      const sinAviso = { ...patch };
+      delete sinAviso.recordatorio_previo_enabled;
+      delete sinAviso.recordatorio_previo_dias_antes;
+      delete sinAviso.recordatorio_previo_template_id;
+      console.warn("[api/sorteos/:id][PATCH]", "columnas_aviso_previo_ausentes", {
+        hint: "Falta correr la migracion recordatorio_previo_* sobre sorteos.",
+      });
+      ({ data, error } = await guardar(sinAviso));
+    }
 
     if (error) {
       return NextResponse.json(errorResponse(error.message), { status: 400 });
