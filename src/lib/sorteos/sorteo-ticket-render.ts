@@ -244,8 +244,13 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
     });
 
   // ---------- Cabecera a sangre (sin recuadros) ----------
-  const LOGO = 230;
-  const bandH = hasLogo ? 372 : 268;
+  /**
+   * Caja ancha, no cuadrada: con una caja cuadrada un logo apaisado (el de MG es 1.5:1)
+   * se ajustaba por el ancho y quedaba chico, dejando aire muerto arriba y abajo.
+   */
+  const LOGO_W = 640;
+  const LOGO_H = 260;
+  const bandH = hasLogo ? 416 : 268;
   parts.push(`<rect x="0" y="0" width="${WA}" height="${bandH}" fill="${ink}"/>`);
   parts.push(`<rect x="0" y="${bandH - 4}" width="${WA}" height="4" fill="${gold}"/>`);
 
@@ -253,9 +258,9 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   if (hasLogo) {
     const href = dataUrlFromBuffer(input.logoBytes!, input.logoMime!);
     parts.push(
-      `<image href="${href}" x="${cx - LOGO / 2}" y="${y}" width="${LOGO}" height="${LOGO}" preserveAspectRatio="xMidYMid meet"/>`
+      `<image href="${href}" x="${cx - LOGO_W / 2}" y="${y}" width="${LOGO_W}" height="${LOGO_H}" preserveAspectRatio="xMidYMid meet"/>`
     );
-    y += LOGO + 22;
+    y += LOGO_H + 22;
   } else if (showLogo) {
     parts.push(
       svgTextAsPath({
