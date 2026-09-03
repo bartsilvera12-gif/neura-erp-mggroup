@@ -279,6 +279,14 @@ async function flowImageInboundAlreadyRecorded(
  * La reserva es una fila liviana escrita antes del trabajo pesado; si la escritura falla,
  * se sigue igual: es preferible un mensaje repetido a perder el comprobante del cliente.
  */
+/** ¿El error viene del índice único de la reserva? Entonces otro request ya la tomó. */
+function isDuplicateClaimError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === "23505") return true;
+  const m = (error.message ?? "").toLowerCase();
+  return m.includes("duplicate key") || m.includes("chat_flow_events_image_claim_uidx");
+}
+
 async function claimInboundImage(
   supabase: SupabaseAdmin,
   params: {
@@ -289,9 +297,15 @@ async function claimInboundImage(
     nodeCode: string | null;
   }
 ): Promise<boolean> {
+  /** Atajo barato: si ya se procesó hace rato, ni intentamos insertar. */
   if (await flowImageInboundAlreadyRecorded(supabase, params.conversationId, params.waMessageId)) {
     return false;
   }
+  /**
+   * La reserva se decide por el INSERT, no por la lectura de arriba: dos entregas casi
+   * simultáneas leen ambas antes de que alguna escriba, y el índice único es lo único
+   * que resuelve el empate.
+   */
   const { error } = await supabase.from("chat_flow_events").insert({
     empresa_id: params.empresaId,
     conversation_id: params.conversationId,
@@ -300,7 +314,15 @@ async function claimInboundImage(
     event_type: IMAGE_CLAIM_EVENT,
     payload: { wa_message_id: params.waMessageId, claimed_at: new Date().toISOString() },
   });
+  if (isDuplicateClaimError(error)) {
+    console.info("[flow-image-input]", "claim_perdida_otro_request_procesa", {
+      conversationId: params.conversationId,
+      waMessageId: params.waMessageId,
+    });
+    return false;
+  }
   if (error) {
+    /** Sin el índice aplicado todavía, se sigue procesando: mejor repetido que perdido. */
     console.warn("[flow-image-input]", "claim_failed_continua_igual", {
       conversationId: params.conversationId,
       waMessageId: params.waMessageId,
