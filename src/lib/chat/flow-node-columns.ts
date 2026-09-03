@@ -21,10 +21,17 @@ export const FLOW_NODE_LIST_COLUMNS_FULL =
 export const FLOW_NODE_LIST_COLUMNS_LEGACY =
   "id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, created_at";
 
-/** ¿El error es «la columna no existe»? Sirve tanto para PostgREST como para el shim PG. */
+/**
+ * ¿El error es «la columna no existe»?
+ *
+ * Postgres dice «column ... does not exist», pero PostgREST responde «Could not find the
+ * '...' column of '...' in the schema cache». Reconocer solo la primera forma dejaba al
+ * bot sin poder leer el nodo actual —y por lo tanto mudo— hasta correr la migración.
+ */
 export function isMissingColumnError(message: string | null | undefined): boolean {
   const m = (message ?? "").toLowerCase();
-  return m.includes("does not exist") && m.includes("column");
+  if (!m.includes("column")) return false;
+  return m.includes("does not exist") || m.includes("could not find");
 }
 
 /**
