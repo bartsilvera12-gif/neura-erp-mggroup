@@ -2,6 +2,7 @@ import { downloadMetaMediaBytes } from "@/lib/chat/meta-media-download";
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
 import { flowNodeColumns, markMissingFlowNodeColumns } from "@/lib/chat/flow-node-columns";
 import { buildMontoCalculadoVars } from "@/lib/chat/flow-monto-calculado";
+import { buildTelefonoVars } from "@/lib/chat/flow-telefono-vars";
 import {
   buildCaptureConfirmation,
   checkFlowInput,
@@ -1764,9 +1765,14 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       flowCode: state.flow_code,
       flowData: flowVarsConMerge,
     });
+    /** El teléfono sale del propio WhatsApp: el flujo no necesita preguntarlo. */
+    const telefonoVars = buildTelefonoVars(
+      "toDigits" in ctxSend ? ctxSend.toDigits : null,
+      flowVarsConMerge
+    );
     const flowVars: Record<string, string> = { ...flowVarsConMerge };
-    /** Lo calculado solo rellena huecos: si el flujo ya trae el dato, ese manda. */
-    for (const [clave, valor] of Object.entries(montoVars)) {
+    /** Lo automático solo rellena huecos: si el flujo ya trae el dato, ese manda. */
+    for (const [clave, valor] of Object.entries({ ...montoVars, ...telefonoVars })) {
       if (!String(flowVars[clave] ?? "").trim()) flowVars[clave] = valor;
     }
     const sumV = summarizeFlowDataForTrace(flowVars);
