@@ -1,6 +1,7 @@
 import "server-only";
 
 import { toTelefonoLocalPy } from "@/lib/chat/flow-telefono-vars";
+import { joinNombreApellido } from "@/lib/sorteos/nombre-completo";
 
 import type { SorteoTicketEntradaDbSnapshot } from "@/lib/sorteos/sorteo-ticket-admin";
 import type { EnsureSorteoOrderCreatedData } from "@/lib/sorteos/sorteo-order-from-chat";
@@ -111,13 +112,7 @@ function sorteoNombreFromPayload(payload: Record<string, unknown> | null | undef
 function buildNombreCompletoFromParts(flowData: Record<string, string>): string {
   const n = norm(flowData["nombre"]);
   const a = norm(flowData["apellido"]);
-  /**
-   * Si el paso de nombre ya pide nombre y apellido juntos, el apellido suelto que quedó
-   * de una versión anterior del flujo lo repetía: «Karen Ayala Ayala» en la boleta.
-   */
-  const apellidoYaIncluido =
-    Boolean(a) && n.toLocaleLowerCase("es").split(" ").filter(Boolean).includes(a.toLocaleLowerCase("es"));
-  const joined = [n, apellidoYaIncluido ? "" : a].filter(Boolean).join(" ").trim();
+  const joined = joinNombreApellido(n, a);
   if (joined) return joined;
   return (
     norm(flowData["nombre_completo"]) ||

@@ -1,3 +1,4 @@
+import { joinNombreApellido } from "@/lib/sorteos/nombre-completo";
 import { fetchDataSchemaForEmpresaId, createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
 import { SUPABASE_APP_SCHEMA, type AppSupabaseClient } from "@/lib/supabase/schema";
 import {
@@ -366,13 +367,10 @@ export function explainParseSorteoParticipantFailure(data: Record<string, string
     return `cantidad: clave "${foundKey}"="${rawVal}" no es número entero >= 1`;
   }
   const nombreCompleto =
-    [
+    joinNombreApellido(
       norm(data["nombre"]) || norm(data["primer_nombre"]) || norm(data["primer nombre"]),
-      norm(data["apellido"]) || norm(data["primer_apellido"]) || norm(data["primer apellido"]),
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .trim() ||
+      norm(data["apellido"]) || norm(data["primer_apellido"]) || norm(data["primer apellido"])
+    ) ||
     norm(data["nombre_y_apellido"]) ||
     norm(data["nombre_completo"]);
   if (!nombreCompleto) {
@@ -541,7 +539,7 @@ export function parseSorteoParticipantFromFlowData(data: Record<string, string>)
     norm(data["apellido"]) ||
     norm(data["primer_apellido"]) ||
     norm(data["primer apellido"]);
-  const fromNombreApellido = [nombrePart, apellidoPart].filter(Boolean).join(" ").trim();
+  const fromNombreApellido = joinNombreApellido(nombrePart, apellidoPart);
   const nombreCompleto =
     fromNombreApellido ||
     norm(data["nombre_y_apellido"]) ||
