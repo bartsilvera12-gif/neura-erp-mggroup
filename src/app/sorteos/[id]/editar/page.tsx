@@ -95,6 +95,11 @@ export default function EditarSorteoPage() {
   const [ticketStub, setTicketStub] = useState("");
   /** Resto de claves de ticket_image_config (colores, show*, paths de storage). */
   const [ticketImageConfigBase, setTicketImageConfigBase] = useState<Record<string, unknown>>({});
+  /** Logo del comprobante en modo automático (la plantilla propia ya lo trae dibujado). */
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const [logoPhase, setLogoPhase] = useState<"idle" | "uploading" | "error">("idle");
+  const [logoMsg, setLogoMsg] = useState<string | null>(null);
+
   /** Aviso previo al sorteo: lo dispara el cron `sorteo-recordatorios`. */
   const [avisoPrevioEnabled, setAvisoPrevioEnabled] = useState(false);
   const [avisoPrevioDias, setAvisoPrevioDias] = useState(1);
@@ -462,6 +467,70 @@ export default function EditarSorteoPage() {
     } catch (e) {
       setTemplatePhase("error");
       setTemplateMsg(e instanceof Error ? e.message : "Error al subir");
+    }
+  }
+
+  async function onLogoFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file || !id) return;
+    setLogoMsg(null);
+    const err = validateAssetFile(file);
+    if (err) {
+      setLogoPhase("error");
+      setLogoMsg(err);
+      return;
+    }
+    setLogoPhase("uploading");
+    const fd = new FormData();
+    fd.set("sorteo_id", id);
+    fd.set("kind", "logo");
+    fd.set("file", file);
+    try {
+      const res = await fetchWithSupabaseSession("/api/sorteos/ticket-assets", { method: "POST", body: fd });
+      const raw = await res.text();
+      if (!res.ok) {
+        setLogoPhase("error");
+        setLogoMsg(raw || `Error ${res.status}`);
+        return;
+      }
+      const json = JSON.parse(raw) as { success?: boolean; data?: { bucket?: string; path?: string } };
+      const bucket = json.data?.bucket;
+      const path = json.data?.path;
+      if (!json.success || !bucket || !path) {
+        setLogoPhase("error");
+        setLogoMsg("Respuesta inválida del servidor.");
+        return;
+      }
+      await persistTicketConfig({
+        ...ticketCfgRef.current,
+        logo_storage_bucket: bucket,
+        logo_storage_path: path,
+        showLogo: true,
+      });
+      setLogoPhase("idle");
+      setLogoMsg("Logo subido.");
+    } catch (e) {
+      setLogoPhase("error");
+      setLogoMsg(e instanceof Error ? e.message : "Error al subir el logo");
+    }
+  }
+
+  async function removeLogo() {
+    if (!id) return;
+    setLogoMsg(null);
+    try {
+      await fetchWithSupabaseSession(
+        `/api/sorteos/ticket-assets?sorteo_id=${encodeURIComponent(id)}&kind=logo`,
+        { method: "DELETE" }
+      );
+      const next = { ...ticketCfgRef.current };
+      delete next.logo_storage_bucket;
+      delete next.logo_storage_path;
+      await persistTicketConfig(next);
+      setLogoMsg("Logo quitado.");
+    } catch (e) {
+      setLogoPhase("error");
+      setLogoMsg(e instanceof Error ? e.message : "Error al quitar el logo");
     }
   }
 
@@ -876,6 +945,49 @@ export default function EditarSorteoPage() {
               </span>
             </span>
           </label>
+
+          <div className="rounded-xl border border-violet-200 bg-white p-4 space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Logo del comprobante</p>
+              <p className="text-xs text-slate-600 mt-1">
+                Se usa en la cabecera cuando el comprobante se arma automáticamente. Si subís una imagen base
+                propia (abajo), el logo ya va dibujado ahí y esto no hace falta. Mejor un PNG con fondo
+                transparente.
+              </p>
+            </div>
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="sr-only"
+              onChange={(e) => {
+                void onLogoFile(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoPhase === "uploading"}
+                className="inline-flex items-center rounded-lg border border-violet-300 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 disabled:opacity-50"
+              >
+                {logoPhase === "uploading" ? "Subiendo…" : "Subir logo"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void removeLogo()}
+                className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Quitar logo
+              </button>
+              {logoMsg && (
+                <span className={`text-xs ${logoPhase === "error" ? "text-red-700" : "text-emerald-700"}`}>
+                  {logoMsg}
+                </span>
+              )}
+            </div>
+          </div>
 
           <div className="rounded-xl border-2 border-violet-400/80 bg-white p-5 space-y-4">
             <div>
