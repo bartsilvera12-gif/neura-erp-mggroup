@@ -2,6 +2,7 @@ import "server-only";
 
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { createServiceRoleClient } from "@/lib/supabase/service-admin";
+import { getSingleClientName } from "@/lib/instance/single-client";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import { fetchSorteoRowTicketFieldsFromPg } from "@/lib/sorteos/sorteo-order-direct-pg";
 import { persistOutgoingChatMessage } from "@/lib/chat/outgoing-message-persist";
@@ -51,6 +52,13 @@ function safeErr(e: unknown): string {
   return "error_desconocido";
 }
 
+/**
+ * Nombre comercial para la cabecera del comprobante.
+ *
+ * En instancias monocliente la fila puede no estar en el catálogo y el comprobante salía
+ * encabezado con la palabra «Empresa». Antes de caer en ese texto se usa el nombre del
+ * despliegue, que es el mismo que muestra el resto de la aplicación.
+ */
 async function loadEmpresaNombre(empresaId: string): Promise<string> {
   const catalog = createServiceRoleClient();
   const { data } = await catalog
@@ -59,7 +67,9 @@ async function loadEmpresaNombre(empresaId: string): Promise<string> {
     .eq("id", empresaId)
     .maybeSingle();
   const n = (data as { nombre?: string } | null)?.nombre;
-  return (typeof n === "string" && n.trim() ? n.trim() : "Empresa");
+  if (typeof n === "string" && n.trim()) return n.trim();
+  const delDespliegue = getSingleClientName();
+  return delDespliegue && delDespliegue !== "ERP" ? delDespliegue : "Empresa";
 }
 
 /** Shim del webhook (`sorteos` por PG) o catálogo; si PostgREST falla en tenant, fallback SQL directo. */

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { toTelefonoLocalPy } from "@/lib/chat/flow-telefono-vars";
+
 import type { SorteoTicketEntradaDbSnapshot } from "@/lib/sorteos/sorteo-ticket-admin";
 import type { EnsureSorteoOrderCreatedData } from "@/lib/sorteos/sorteo-order-from-chat";
 
@@ -109,7 +111,13 @@ function sorteoNombreFromPayload(payload: Record<string, unknown> | null | undef
 function buildNombreCompletoFromParts(flowData: Record<string, string>): string {
   const n = norm(flowData["nombre"]);
   const a = norm(flowData["apellido"]);
-  const joined = [n, a].filter(Boolean).join(" ").trim();
+  /**
+   * Si el paso de nombre ya pide nombre y apellido juntos, el apellido suelto que quedó
+   * de una versión anterior del flujo lo repetía: «Karen Ayala Ayala» en la boleta.
+   */
+  const apellidoYaIncluido =
+    Boolean(a) && n.toLocaleLowerCase("es").split(" ").filter(Boolean).includes(a.toLocaleLowerCase("es"));
+  const joined = [n, apellidoYaIncluido ? "" : a].filter(Boolean).join(" ").trim();
   if (joined) return joined;
   return (
     norm(flowData["nombre_completo"]) ||
@@ -262,7 +270,10 @@ export function buildSorteoTicketRenderData(input: {
     buildNombreCompletoFromParts(flowData)
   ).trim();
   const documento = (entradaDb?.documento?.trim() || documentoFromFlow(flowData)).trim();
-  const telefono = (entradaDb?.telefono?.trim() || telefonoFromFlow(flowData)).trim();
+  /** Se muestra como lo conoce el cliente (0971…), no en formato internacional. */
+  const telefono = toTelefonoLocalPy(
+    (entradaDb?.telefono?.trim() || telefonoFromFlow(flowData)).trim()
+  );
   const ciudad = ciudadFromFlow(flowData);
 
   const sourceUsed: SorteoTicketRenderSourceUsed = entradaDb
