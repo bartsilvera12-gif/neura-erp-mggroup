@@ -158,9 +158,17 @@ export default function SorteoRevendedoresClient(props: {
         <span className="text-slate-800 font-medium">Revendedores</span>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">Revendedores</h1>
-        <p className="text-sm text-slate-600 mt-1">{props.sorteoNombre}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Revendedores</h1>
+          <p className="text-sm text-slate-600 mt-1">{props.sorteoNombre}</p>
+        </div>
+        <Link
+          href={`/sorteos/${props.sorteoId}/revendedores/ranking`}
+          className="inline-flex items-center rounded-lg border border-[#4FAEB2]/30 bg-[#4FAEB2]/8 px-3 py-2 text-sm font-medium text-[#3F8E91] hover:bg-sky-100"
+        >
+          🏆 Ranking de ventas
+        </Link>
       </div>
 
       {hintPhone}
