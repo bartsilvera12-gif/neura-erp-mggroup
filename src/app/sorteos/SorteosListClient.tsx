@@ -191,7 +191,14 @@ function NavTabs() {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
-export default function SorteosListClient({ ventasKpis }: { ventasKpis: SorteosVentasKpis }) {
+export default function SorteosListClient({
+  ventasKpis,
+  /** Los totales del mes son solo para administración; el supervisor ve únicamente el día. */
+  mostrarAcumuladosDelMes = true,
+}: {
+  ventasKpis: SorteosVentasKpis;
+  mostrarAcumuladosDelMes?: boolean;
+}) {
   const [rows, setRows] = useState<Sorteo[]>([]);
   const [cargando, setCargando] = useState(true);
   const [finalizandoId, setFinalizandoId] = useState<string | null>(null);
@@ -260,32 +267,41 @@ export default function SorteosListClient({ ventasKpis }: { ventasKpis: SorteosV
       <NavTabs />
 
       {/* KPIs */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        className={`grid gap-3 sm:grid-cols-2 ${
+          mostrarAcumuladosDelMes ? "lg:grid-cols-4" : "lg:grid-cols-2"
+        }`}
+      >
         <KpiCard
           label="Boletos hoy"
           value={ventasKpis.boletosHoy.toLocaleString("es-PY")}
           sub="Vendidos hoy"
           icon={<IconTicket />}
         />
-        <KpiCard
-          label="Boletos mes"
-          value={ventasKpis.boletosMes.toLocaleString("es-PY")}
-          sub="Vendidos este mes"
-          icon={<IconCalendar />}
-        />
+        {mostrarAcumuladosDelMes && (
+          <KpiCard
+            label="Boletos mes"
+            value={ventasKpis.boletosMes.toLocaleString("es-PY")}
+            sub="Vendidos este mes"
+            icon={<IconCalendar />}
+          />
+        )}
         <KpiCard
           label="Monto hoy"
           value={formatGs(ventasKpis.montoHoy)}
           sub="Ingresos de hoy"
           icon={<IconWallet />}
+          accent={mostrarAcumuladosDelMes ? undefined : "featured"}
         />
-        <KpiCard
-          label="Monto mes"
-          value={formatGs(ventasKpis.montoMes)}
-          sub="Ingresos del mes"
-          icon={<IconCoins />}
-          accent="featured"
-        />
+        {mostrarAcumuladosDelMes && (
+          <KpiCard
+            label="Monto mes"
+            value={formatGs(ventasKpis.montoMes)}
+            sub="Ingresos del mes"
+            icon={<IconCoins />}
+            accent="featured"
+          />
+        )}
       </div>
 
       {/* Tabla */}

@@ -1,5 +1,7 @@
 import SorteosListClient from "./SorteosListClient";
 import { getSorteosVentasKpis } from "@/lib/sorteos/ventas-kpis";
+import { esRolAdminEmpresaOGlobal } from "@/lib/auth/rol-empresa";
+import { getCurrentUserRolServer } from "@/lib/auth/get-current-user-rol-server";
 
 /** KPIs dependen de sesión y ventana calendario Paraguay; evitar cache estático de respuestas en 0. */
 export const dynamic = "force-dynamic";
@@ -17,5 +19,12 @@ export default async function SorteosPage() {
   } catch {
     /* sin sesión o error de red: KPIs en cero */
   }
-  return <SorteosListClient ventasKpis={ventasKpis} />;
+  /**
+   * Los acumulados del mes son solo para administración: el supervisor ve el pulso del día,
+   * no el negocio del mes. Sin rol resuelto se ocultan, que es el lado seguro.
+   */
+  const mostrarAcumuladosDelMes = esRolAdminEmpresaOGlobal(await getCurrentUserRolServer());
+  return (
+    <SorteosListClient ventasKpis={ventasKpis} mostrarAcumuladosDelMes={mostrarAcumuladosDelMes} />
+  );
 }
