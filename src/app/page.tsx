@@ -32,6 +32,7 @@ import {
   toCalendarDateStr,
 } from "@/lib/fechas/calendario";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import RankingRevendedoresCard from "@/components/sorteos/RankingRevendedoresCard";
 import { etiquetaVisibleTipoServicio } from "@/lib/clientes/tipo-servicio-catalogo";
 import { useMapNombreTipoServicioCatalogo } from "@/lib/clientes/use-map-nombre-tipo-servicio";
 import { getEtapas, getEtapaClasses, normalizeEtapaCodigo, type EtapaCrm } from "@/lib/crm/etapas";
@@ -2798,6 +2799,13 @@ export default function DashboardPage() {
           })}
         </nav>
       ) : null}
+
+      {/**
+       * Top de vendedores del sorteo activo. Va antes de las pestañas porque es transversal:
+       * el cliente entra al dashboard justamente a mirar esto. No renderiza nada si la empresa
+       * no tiene un sorteo activo con revendedores, así que no molesta a los demás clientes.
+       */}
+      <RankingRevendedoresCard />
 
       {/* Contenido */}
       {tab === "comercial" && (
