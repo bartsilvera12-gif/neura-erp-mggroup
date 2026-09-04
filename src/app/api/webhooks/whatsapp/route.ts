@@ -10,6 +10,14 @@ import { handleWhatsAppWebhookPost } from "@/lib/chat/webhooks/meta-whatsapp-web
 
 export const dynamic = "force-dynamic";
 
+/**
+ * El POST le responde a Meta enseguida y procesa despues con `after`. Ese trabajo posterior
+ * sigue contando para la duracion de la funcion, asi que el limite tiene que cubrirlo: con el
+ * default (bastante menor) el procesamiento se cortaria a la mitad y el bot quedaria mudo,
+ * ahora sin que Meta reintente. Un ciclo medido tarda unos 9 s.
+ */
+export const maxDuration = 60;
+
 const LOG_PREFIX = "[api/webhooks/whatsapp][GET]";
 
 function diagHeaders(): HeadersInit {

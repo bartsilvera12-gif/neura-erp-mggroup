@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServiceRoleClientOptions, type AppSupabaseClient } from "@/lib/supabase/schema";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import type { WebhookProvisionEnv } from "@/lib/chat/channel-provision";
 import { verifyMetaSignature } from "@/lib/chat/meta-signature";
 import { processWhatsAppWebhookBody } from "@/lib/chat/whatsapp-webhook-service";
@@ -98,44 +98,60 @@ export async function handleWhatsAppWebhookPost(request: NextRequest): Promise<N
       return NextResponse.json({ ok: false, error: "JSON inválido" }, { status: 400 });
     }
 
-    const supabase = getSupabaseAdminForWebhooks();
     const provisionEnv: WebhookProvisionEnv = {
       defaultEmpresaId: process.env.WHATSAPP_DEFAULT_EMPRESA_ID?.trim(),
       expectedPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID?.trim(),
     };
+
     /**
-     * El reparto del tiempo se registra siempre: el retraso del mensaje de bienvenida solo se
-     * puede atribuir viendo cuanto se va en Meta, cuanto en la base y cuanto en el arranque.
-     * `arranque_ms` distingue el arranque en frio del tiempo de procesamiento real.
+     * Se le responde 200 a Meta ANTES de procesar.
+     *
+     * Antes se procesaba todo —consultas, motor de flujo y envio— y recien ahi se contestaba.
+     * Un ciclo completo tarda unos 9 s medidos, y Meta corta la espera a los ~20 s: si el
+     * procesamiento se pasa, Meta da el envio por fallado y reintenta el MISMO mensaje. Ese
+     * reintento se procesa en paralelo con el original, carga mas la base, hace que tarde
+     * todavia mas y dispara otro reintento. Explica los mensajes duplicados y los tramos en
+     * que el bot parecia mudo.
+     *
+     * `after` corre el trabajo despues de enviar la respuesta, sin cambiar nada del
+     * procesamiento en si. Meta ya no reintenta; el tiempo que espera el cliente hasta ver la
+     * respuesta del bot es el mismo hasta que se optimicen las consultas.
      */
-    const { resultado: result, resumen } = await medirWebhook(() =>
-      processWhatsAppWebhookBody(supabase, body, provisionEnv)
-    );
-    console.info("[webhooks/whatsapp][tiempos]", {
-      ...resumen,
-      arranque_ms: Math.round(msDesdeArranqueDelProceso()),
-      mensajes: result.processed,
+    after(async () => {
+      try {
+        const supabase = getSupabaseAdminForWebhooks();
+        /**
+         * El reparto del tiempo se registra siempre: la demora solo se puede atribuir viendo
+         * cuanto se va en la base, cuanto en Meta y cuanto en el arranque de la instancia.
+         */
+        const { resultado: result, resumen } = await medirWebhook(() =>
+          processWhatsAppWebhookBody(supabase, body, provisionEnv)
+        );
+        console.info("[webhooks/whatsapp][tiempos]", {
+          ...resumen,
+          arranque_ms: Math.round(msDesdeArranqueDelProceso()),
+          mensajes: result.processed,
+        });
+
+        if (result.errors.length > 0) {
+          console.warn("[webhooks/whatsapp][POST] resultado con errores/advertencias", {
+            processed: result.processed,
+            skipped: result.skipped,
+            errors: result.errors,
+          });
+        } else if (result.processed > 0) {
+          console.info("[webhooks/whatsapp][POST] ok", {
+            processed: result.processed,
+            skipped: result.skipped,
+          });
+        }
+      } catch (e) {
+        /** Ya se respondio: el error no puede viajar en la respuesta, solo al log. */
+        console.error("[webhooks/whatsapp][after]", e);
+      }
     });
 
-    if (result.errors.length > 0) {
-      console.warn("[webhooks/whatsapp][POST] resultado con errores/advertencias", {
-        processed: result.processed,
-        skipped: result.skipped,
-        errors: result.errors,
-      });
-    } else if (result.processed > 0) {
-      console.info("[webhooks/whatsapp][POST] ok", {
-        processed: result.processed,
-        skipped: result.skipped,
-      });
-    }
-
-    return NextResponse.json({
-      ok: result.ok,
-      processed: result.processed,
-      skipped: result.skipped,
-      errors: result.errors,
-    });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[webhooks/whatsapp]", e);
     return NextResponse.json({ ok: false, error: "Error interno" }, { status: 500 });

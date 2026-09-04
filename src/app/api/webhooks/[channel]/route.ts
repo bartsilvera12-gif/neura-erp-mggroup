@@ -7,6 +7,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** Misma razón que en `api/webhooks/whatsapp`: el procesamiento con `after` cuenta acá. */
+export const maxDuration = 60;
+
 type RouteCtx = { params: Promise<{ channel: string }> };
 
 export async function GET(request: NextRequest, ctx: RouteCtx) {
