@@ -5,6 +5,7 @@ import {
 import { createFlowEngine } from "@/lib/chat/flow-engine-service";
 import { flowTrace } from "@/lib/chat/flow-trace-log";
 import { persistInboundChatMessageAndBump } from "@/lib/chat/incoming-message-service";
+import { fetchMedido } from "@/lib/chat/webhook-timing";
 import { isSingleClientMode } from "@/lib/instance/single-client";
 import { assignConversation } from "@/lib/chat/assign-conversation-service";
 import { assignConversationPg } from "@/lib/chat/webhooks/assign-conversation-pg";
@@ -469,7 +470,7 @@ async function findWhatsappChannelInTenantSchemas(
       continue;
     }
 
-    const tenantSb = createServiceRoleClientWithDbSchema(schema) as SupabaseAdmin;
+    const tenantSb = createServiceRoleClientWithDbSchema(schema, fetchMedido) as SupabaseAdmin;
     const { data: ch, error: chErr } = await tenantSb
       .from("chat_channels")
       .select("id, empresa_id, meta_phone_number_id, activo")
@@ -543,7 +544,7 @@ export async function processInboundWebhookValue(
       dataSupabase =
         schema === SUPABASE_APP_SCHEMA
           ? catalogSupabase
-          : (createServiceRoleClientWithDbSchema(schema) as SupabaseAdmin);
+          : (createServiceRoleClientWithDbSchema(schema, fetchMedido) as SupabaseAdmin);
       const { data: chT, error: errT } = await dataSupabase
         .from("chat_channels")
         .select("id, empresa_id, meta_phone_number_id, activo")
@@ -625,7 +626,7 @@ export async function processInboundWebhookValue(
           dataSupabase =
             schema === SUPABASE_APP_SCHEMA
               ? catalogSupabase
-              : (createServiceRoleClientWithDbSchema(schema) as SupabaseAdmin);
+              : (createServiceRoleClientWithDbSchema(schema, fetchMedido) as SupabaseAdmin);
           const { data: chTenant } = await dataSupabase
             .from("chat_channels")
             .select("id, empresa_id, meta_phone_number_id, activo")
@@ -725,7 +726,7 @@ export async function processInboundWebhookValue(
   const legacyTenantChat =
     tenantDataSchema === SUPABASE_APP_SCHEMA
       ? catalogSupabase
-      : (createServiceRoleClientWithDbSchema(tenantDataSchema) as SupabaseAdmin);
+      : (createServiceRoleClientWithDbSchema(tenantDataSchema, fetchMedido) as SupabaseAdmin);
 
   /** Cliente tenant: shim Postgres cuando `erp_*`/`er_*` no está expuesto en PostgREST; si no, PostgREST legacy. */
   const supabase: SupabaseAdmin =
@@ -2046,7 +2047,7 @@ async function resolveStatusChannelContext(
       dataSupabase =
         dataSchema === SUPABASE_APP_SCHEMA
           ? catalogSupabase
-          : (createServiceRoleClientWithDbSchema(dataSchema) as SupabaseAdmin);
+          : (createServiceRoleClientWithDbSchema(dataSchema, fetchMedido) as SupabaseAdmin);
       const { data, error } = await dataSupabase
         .from("chat_channels")
         .select("id, empresa_id, meta_phone_number_id, activo")
@@ -2094,7 +2095,7 @@ async function resolveStatusChannelContext(
         })
       : dataSchema === SUPABASE_APP_SCHEMA
         ? catalogSupabase
-        : (createServiceRoleClientWithDbSchema(dataSchema) as SupabaseAdmin);
+        : (createServiceRoleClientWithDbSchema(dataSchema, fetchMedido) as SupabaseAdmin);
 
   console.info(`${WH_STATUS}[channel-resolved]`, {
     phone_number_id: phoneNumberId,

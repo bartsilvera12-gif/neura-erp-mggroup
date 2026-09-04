@@ -39,7 +39,15 @@ export async function fetchDataSchemaForEmpresaId(empresaId: string): Promise<st
 }
 
 /** Service role apuntando al esquema de datos operativos de la empresa (chat/omnicanal). */
-export function createServiceRoleClientWithDbSchema(schema: string): AppSupabaseClient {
+/**
+ * `fetchOverride` existe para instrumentar desde el servidor (medicion de tiempos del webhook)
+ * sin que este modulo importe nada de Node: es alcanzable desde componentes de cliente, y un
+ * `import` de `node:async_hooks` aca rompe el build del bundle del navegador.
+ */
+export function createServiceRoleClientWithDbSchema(
+  schema: string,
+  fetchOverride?: typeof fetch
+): AppSupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!url || !key) {
@@ -48,6 +56,7 @@ export function createServiceRoleClientWithDbSchema(schema: string): AppSupabase
   return createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
     db: { schema },
+    ...(fetchOverride ? { global: { fetch: fetchOverride } } : {}),
   }) as AppSupabaseClient;
 }
 

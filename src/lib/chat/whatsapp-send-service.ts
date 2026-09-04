@@ -3,6 +3,8 @@
  *
  * Límites documentados (Cloud API): reply buttons máx. 3; lista interactiva hasta 10 filas (total).
  */
+import { medirEtapa } from "@/lib/chat/webhook-timing";
+
 export const WA_META_REPLY_BUTTON_MAX = 3;
 export const WA_META_LIST_ROW_MAX = 10;
 /** Título de cada reply button (Meta). */
@@ -76,14 +78,16 @@ async function sendWhatsAppPayload(
   const v = params.graphVersion ?? process.env.WHATSAPP_GRAPH_VERSION ?? "v19.0";
   const url = `https://graph.facebook.com/${v}/${params.phoneNumberId}/messages`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const res = await medirEtapa("meta_send", () =>
+    fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    })
+  );
 
   const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {

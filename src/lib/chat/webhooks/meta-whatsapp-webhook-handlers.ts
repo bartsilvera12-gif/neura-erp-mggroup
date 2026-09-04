@@ -4,12 +4,22 @@ import { NextRequest, NextResponse } from "next/server";
 import type { WebhookProvisionEnv } from "@/lib/chat/channel-provision";
 import { verifyMetaSignature } from "@/lib/chat/meta-signature";
 import { processWhatsAppWebhookBody } from "@/lib/chat/whatsapp-webhook-service";
+import { medirEtapa } from "@/lib/chat/webhook-timing";
+import { medirWebhook, msDesdeArranqueDelProceso } from "@/lib/chat/webhook-timing-node";
 
 export function getSupabaseAdminForWebhooks(): AppSupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Supabase no configurado");
-  return createClient(url, key, { ...supabaseServiceRoleClientOptions }) as AppSupabaseClient;
+  return createClient(url, key, {
+    ...supabaseServiceRoleClientOptions,
+    /**
+     * Mide el tiempo de PostgREST sin tocar las decenas de consultas del webhook. Es la etapa
+     * que mas se sospecha: son muchas consultas secuenciales y cada una paga la distancia
+     * entre la funcion de Vercel y la base.
+     */
+    global: { fetch: (...args: Parameters<typeof fetch>) => medirEtapa("db", () => fetch(...args)) },
+  }) as AppSupabaseClient;
 }
 
 /**
@@ -93,7 +103,19 @@ export async function handleWhatsAppWebhookPost(request: NextRequest): Promise<N
       defaultEmpresaId: process.env.WHATSAPP_DEFAULT_EMPRESA_ID?.trim(),
       expectedPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID?.trim(),
     };
-    const result = await processWhatsAppWebhookBody(supabase, body, provisionEnv);
+    /**
+     * El reparto del tiempo se registra siempre: el retraso del mensaje de bienvenida solo se
+     * puede atribuir viendo cuanto se va en Meta, cuanto en la base y cuanto en el arranque.
+     * `arranque_ms` distingue el arranque en frio del tiempo de procesamiento real.
+     */
+    const { resultado: result, resumen } = await medirWebhook(() =>
+      processWhatsAppWebhookBody(supabase, body, provisionEnv)
+    );
+    console.info("[webhooks/whatsapp][tiempos]", {
+      ...resumen,
+      arranque_ms: Math.round(msDesdeArranqueDelProceso()),
+      mensajes: result.processed,
+    });
 
     if (result.errors.length > 0) {
       console.warn("[webhooks/whatsapp][POST] resultado con errores/advertencias", {
