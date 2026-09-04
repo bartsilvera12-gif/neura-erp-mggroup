@@ -48,6 +48,52 @@ export default function RevendedorPosClient(props: Props) {
   const [result, setResult] = useState<SaleResult | null>(null);
   const [restante, setRestante] = useState<number | null>(props.cupoRestante);
   const [saldo, setSaldo] = useState<number>(props.saldoARendir);
+  const [buscando, setBuscando] = useState(false);
+  const [avisoBusqueda, setAvisoBusqueda] = useState<string | null>(null);
+
+  /**
+   * Autocompleta nombre y teléfono desde una compra anterior de este documento en el sorteo.
+   * Nunca pisa lo que el vendedor ya escribió: si corrigió un dato a mano, ese gana.
+   */
+  async function buscarCliente() {
+    const doc = documento.trim();
+    setAvisoBusqueda(null);
+    if (doc.replace(/[^0-9A-Za-z]/g, "").length < 4) {
+      setAvisoBusqueda("Escribí el documento completo para buscar.");
+      return;
+    }
+    setBuscando(true);
+    try {
+      const res = await fetch(
+        `/api/sorteos/revendedor-cliente?documento=${encodeURIComponent(doc)}`
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: { encontrado?: boolean; nombre?: string; telefono?: string };
+        error?: string;
+      };
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "No se pudo buscar.");
+      }
+      if (!json.data?.encontrado) {
+        setAvisoBusqueda("Sin compras anteriores con ese documento. Cargá los datos a mano.");
+        return;
+      }
+      const n = (json.data.nombre ?? "").trim();
+      const t = (json.data.telefono ?? "").trim();
+      if (n && !nombre.trim()) setNombre(n);
+      if (t && !telefono.trim()) setTelefono(t);
+      setAvisoBusqueda(
+        nombre.trim() || telefono.trim()
+          ? "Comprador encontrado. Se completaron solo los campos vacíos."
+          : "Comprador encontrado."
+      );
+    } catch (ex) {
+      setAvisoBusqueda(ex instanceof Error ? ex.message : "No se pudo buscar.");
+    } finally {
+      setBuscando(false);
+    }
+  }
 
   const qty = useMemo(() => {
     const n = parseInt(cantidad, 10);
@@ -108,6 +154,7 @@ export default function RevendedorPosClient(props: Props) {
     setCantidad("1");
     setPagoMetodo("efectivo");
     setErr(null);
+    setAvisoBusqueda(null);
   }
 
   // ---- Vista de comprobante (post-venta, imprimible) ----
@@ -210,13 +257,35 @@ export default function RevendedorPosClient(props: Props) {
         )}
 
         <Field label="Documento (C.I. / RUC)">
-          <input
-            inputMode="numeric"
-            value={documento}
-            onChange={(e) => setDocumento(e.target.value)}
-            placeholder="Opcional"
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
-          />
+          <div className="flex gap-2">
+            <input
+              inputMode="numeric"
+              value={documento}
+              onChange={(e) => setDocumento(e.target.value)}
+              /** Buscar con Enter sin enviar la venta a medio completar. */
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void buscarCliente();
+                }
+              }}
+              placeholder="Opcional"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
+            />
+            <button
+              type="button"
+              onClick={() => void buscarCliente()}
+              disabled={buscando}
+              title="Buscar comprador por documento"
+              aria-label="Buscar comprador por documento"
+              className="shrink-0 rounded-xl bg-[#1e2a5a] px-4 text-white disabled:opacity-50"
+            >
+              {buscando ? "…" : "🔍"}
+            </button>
+          </div>
+          {avisoBusqueda && (
+            <p className="mt-1 text-[11px] text-slate-500">{avisoBusqueda}</p>
+          )}
         </Field>
         <Field label="Nombre y Apellido">
           <input
