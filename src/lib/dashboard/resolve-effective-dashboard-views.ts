@@ -10,8 +10,18 @@ export type DashboardViewRow = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySb = any;
 
-const DASH_SLUGS = new Set(["comercial", "financiero", "inventario", "ventas"]);
-export type DashboardTabSlug = "comercial" | "financiero" | "inventario" | "ventas";
+/**
+ * `sorteos` no viene por defecto: solo aparece si la empresa la habilita en
+ * `empresa_dashboard_views`. Para un cliente de sorteos puede ser la única vista, y entonces
+ * el dashboard es el ranking de vendedores; para el resto, ni se entera de que existe.
+ */
+const DASH_SLUGS = new Set(["comercial", "financiero", "inventario", "ventas", "sorteos"]);
+export type DashboardTabSlug =
+  | "comercial"
+  | "financiero"
+  | "inventario"
+  | "ventas"
+  | "sorteos";
 
 export function isDashboardTabSlug(s: string): s is DashboardTabSlug {
   return DASH_SLUGS.has(s);

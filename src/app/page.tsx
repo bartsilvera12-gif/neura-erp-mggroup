@@ -2633,6 +2633,7 @@ export default function DashboardPage() {
     financiero: { label: "Financiero", Icon: Icon.Financiero },
     inventario: { label: "Inventario", Icon: Icon.Inventario },
     ventas: { label: "Ventas", Icon: Icon.Ventas },
+    sorteos: { label: "Sorteos", Icon: Icon.Ventas },
   };
 
   if (!config) {
@@ -2800,14 +2801,9 @@ export default function DashboardPage() {
         </nav>
       ) : null}
 
-      {/**
-       * Top de vendedores del sorteo activo. Va antes de las pestañas porque es transversal:
-       * el cliente entra al dashboard justamente a mirar esto. No renderiza nada si la empresa
-       * no tiene un sorteo activo con revendedores, así que no molesta a los demás clientes.
-       */}
-      <RankingRevendedoresCard />
-
       {/* Contenido */}
+      {tab === "sorteos" && <RankingRevendedoresCard variante="panel" />}
+
       {tab === "comercial" && (
         <DashComercial
           prospectos={prospectos}
