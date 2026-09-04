@@ -25,6 +25,7 @@
     "db:apply-sifen-timbrado-fecha": "tsx scripts/apply-sifen-timbrado-fecha-inicio-migration.ts",
     "db:apply-sifen-actividad-economica": "tsx scripts/apply-sifen-actividad-economica-migration.ts",
     "test:comprobante-tech": "tsx scripts/technical-tests-comprobante-full.ts",
+    "test:comprobante-monto": "tsx scripts/test-comprobante-monto-ocr.ts",
     "db:rewrite-migrations-zentra": "tsx scripts/rewrite-migrations-public-to-zentra.ts",
     "db:verify-zentra-install": "tsx scripts/verify-zentra-erp-db-install.ts",
     "e2e:super-admin-sidebar": "tsx scripts/e2e-super-admin-modulos.ts",

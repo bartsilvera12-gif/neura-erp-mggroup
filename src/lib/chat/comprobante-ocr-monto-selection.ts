@@ -29,12 +29,35 @@ export type SelectReceiptMontoFromOcrOptions = {
 const POS_LINE =
   /monto|total|importe|pagad[oa]|transferencia|enviad[oa]|env[ií]o|acreditad[oa]|d[eé]bito|pago|valor/i;
 const NEG_LINE =
-  /cuenta|nro\.?\s*cuenta|n[uú]mero\s+de\s+cuenta|cta\.?|alias|titular|\bruc\b|\bci\b|c[eé]dula|documento|operaci[oó]n|transacci[oó]n|referencia|tel[eé]fono|celular/i;
+  /cuenta|nro\.?\s*cuenta|n[uú]mero\s+de\s+cuenta|cta\.?|alias|titular|\bruc\b|\bci\b|c[eé]dula|documento|operaci[oó]n|transacci[oó]n|referencia|tel[eé]fono|celular|(?:nro\.?|n[uú]mero)\s*(?:de\s*)?comprobante|comprobante\s*(?:nro\.?|n[uú]mero|#)/i;
 
-/** Ventana alrededor del match para detectar prefijo monetario */
+/**
+ * Ventana alrededor del match para detectar prefijo monetario, **sin cruzar de renglon**.
+ *
+ * Antes la ventana era de 45/30 caracteres sobre el texto completo, y en un comprobante como
+ *
+ *     Nro. de comprobante: 8985550
+ *     04/09/2026 a las 10:00
+ *     Gs. 10.000
+ *
+ * ese `Gs.` quedaba dentro de la ventana del numero de comprobante y de la fecha: los tres
+ * candidatos empataban en puntaje y ganaba el primero del texto (caso real 2026-09-04, se
+ * guardo 8985550 como monto de una transferencia de 10.000). En los comprobantes la moneda
+ * va siempre en el mismo renglon que el importe.
+ */
 function currencyNearFullText(text: string, start: number, end: number): boolean {
-  const win = text.slice(Math.max(0, start - 45), Math.min(text.length, end + 30));
-  return /(?:gs\.?|₲|pyg)/i.test(win);
+  const desde = Math.max(text.lastIndexOf("\n", start) + 1, start - 45);
+  const nl = text.indexOf("\n", end);
+  const hasta = Math.min(nl === -1 ? text.length : nl, end + 30);
+  if (hasta <= desde) return false;
+  return /(?:gs\.?|₲|pyg)/i.test(text.slice(desde, hasta));
+}
+
+/** ¿El numero es el año (u otra parte) de una fecha `04/09/2026`, `04-09-2026`? */
+function esParteDeFecha(text: string, start: number, end: number): boolean {
+  const antes = text.slice(Math.max(0, start - 6), start);
+  const despues = text.slice(end, end + 6);
+  return /\d{1,2}[/\-.]\d{1,2}[/\-.]$/.test(antes) || /^[/\-.]\d{1,2}[/\-.]\d{1,4}/.test(despues);
 }
 
 function lineAtIndex(text: string, idx: number): string {
@@ -80,7 +103,12 @@ function enumerateNumericCandidates(fullText: string): Array<{
   let m: RegExpExecArray | null;
   while ((m = re.exec(t)) !== null) {
     const raw = m[0];
-    const digits = raw.replace(/\D/g, "");
+    /**
+     * Los centavos se descartan antes de aplanar a digitos. Sin esto `Gs. 1.234.567,00`
+     * daba `123456700`: cien veces el importe real, y el control contra el monto esperado
+     * comparaba contra ese numero.
+     */
+    const digits = raw.replace(/,\d{2}$/, "").replace(/\D/g, "");
     if (digits.length < 4) continue;
     const value = Number(digits);
     if (!Number.isFinite(value) || value < 0) continue;
@@ -117,6 +145,12 @@ function scoreCandidate(
   if (cur) {
     score += 130;
     flags.push("currency");
+  }
+
+  /** Un año suelto (`04/09/2026`) no es un importe, por mas que la linea tenga «Gs.». */
+  if (esParteDeFecha(fullText, start, end)) {
+    score -= 200;
+    flags.push("fecha");
   }
 
   const exp = opts.expectedMontoGs;
