@@ -193,6 +193,41 @@ type FlowNode = {
  * cantidad y esperar la respuesta, sin necesidad de un segundo paso que repita la
  * pregunta. Sin `save_as_field` no hay nada que capturar y el paso sigue de largo.
  */
+export type ThrownAuditDetail = {
+  error_message: string;
+  error_name: string;
+  /** `String(e)`: unica pista cuando el throw no es un Error. */
+  error_string: string;
+  error_cause?: string;
+  error_stack?: string;
+};
+
+/**
+ * Describe una excepcion para `chat_flow_events`.
+ *
+ * Guardar solo `e.message` dejaba el evento `flow_send_failed` con el texto vacio cuando
+ * el throw venia de un `new Error(error.message)` sin mensaje: el bot quedaba trabado y la
+ * auditoria no decia nada (caso real 2026-09-04, conversacion parada en `comprobacion_datos`).
+ * Con el nombre, la causa y la cabeza del stack el paso siguiente es identificable.
+ */
+export function describeThrownForAudit(e: unknown): ThrownAuditDetail {
+  const esError = e instanceof Error;
+  const detalle: ThrownAuditDetail = {
+    error_message: esError ? e.message : String(e),
+    error_name: esError ? e.name : typeof e,
+    error_string: String(e),
+  };
+  if (esError && e.cause != null) {
+    const c = e.cause;
+    detalle.error_cause = c instanceof Error ? `${c.name}: ${c.message}` : String(c);
+  }
+  if (esError && typeof e.stack === "string") {
+    /** Primeras lineas: alcanzan para ubicar el origen sin inflar el evento. */
+    detalle.error_stack = e.stack.split("\n").slice(0, 6).join("\n").slice(0, 800);
+  }
+  return detalle;
+}
+
 function esNodoDeCaptura(node: {
   node_type?: string | null;
   save_as_field?: string | null;
@@ -1610,13 +1645,13 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     try {
       result = await sendCurrentFlowNodeImpl(params);
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e);
+      const detalle = describeThrownForAudit(e);
       console.error("[flow-engine] sendCurrentFlowNode_exception", {
         conversationId: params.conversationId,
-        error: errMsg,
+        ...detalle,
       });
-      await tryLogFlowSendFailed(params.conversationId, errMsg, "exception");
-      return { ok: false, error: errMsg };
+      await tryLogFlowSendFailed(params.conversationId, detalle.error_message, "exception", detalle);
+      return { ok: false, error: detalle.error_message };
     }
     if (!result.ok) {
       await tryLogFlowSendFailed(
@@ -1632,7 +1667,9 @@ export function createFlowEngine(ctx: FlowEngineContext) {
   async function tryLogFlowSendFailed(
     conversationId: string,
     errorMessage: string,
-    reason: "exception" | "ok_false"
+    reason: "exception" | "ok_false",
+    /** Detalle del throw (nombre, causa, stack). Ver `describeThrownForAudit`. */
+    detalle?: ThrownAuditDetail
   ): Promise<void> {
     try {
       const { data: conv } = await supabase
@@ -1658,6 +1695,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         payload: {
           error_message: errorMessage.slice(0, 500),
           reason,
+          ...(detalle ?? {}),
         },
       });
     } catch (auditErr) {

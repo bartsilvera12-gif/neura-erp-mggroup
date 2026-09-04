@@ -70,6 +70,8 @@ export type FlowNodeRowLite = {
   message_text: string | null;
   save_as_field: string | null;
   next_node_code: string | null;
+  /** Solo se usa para desempatar el arranque cuando el grafo es circular. */
+  sort_order?: number | null;
 };
 
 export type FlowOptRowLite = {
@@ -102,8 +104,47 @@ export function buildFlowNodeBfsOrder(nodes: FlowNodeRowLite[], opts: FlowOptRow
     if (parent) addEdge(parent, o.next_node_code);
   }
 
-  const roots = nodes.map((n) => n.node_code.trim()).filter((c) => !targets.has(c));
-  const queue = [...roots];
+  const todos = nodes.map((n) => n.node_code.trim()).filter(Boolean);
+  const roots = todos.filter((c) => !targets.has(c));
+  /**
+   * Sin raices el grafo es circular y el BFS arrancaba con la cola vacia: devolvia `[]`, y con
+   * el orden vacio la verificacion de capturas completas no revisa nada y nunca redirige, o sea
+   * queda apagada en silencio. Pasa con un boton de "volver al inicio" (ej. «Comprar mas»
+   * apuntando al paso 1), que convierte a todos los pasos en destino de alguien.
+   *
+   * En ese caso se elige UN solo nodo de arranque: el de menor grado de entrada, desempatando
+   * por `sort_order`. Tiene que ser uno solo. Sembrar con todos hace que la cola se vacie en
+   * el orden de las semillas y el resultado degenere en el orden del editor, que no siempre
+   * coincide con la cadena real (ej.: «telefono» con sort_order menor que «ciudad» aunque el
+   * flujo vaya ciudad -> telefono). Ese orden invertido haria redirigir a un paso posterior y
+   * saltearse una pregunta.
+   */
+  const ordenEditor = new Map<string, number>(
+    nodes.map((n) => [n.node_code.trim(), n.sort_order ?? Number.MAX_SAFE_INTEGER])
+  );
+  const porOrdenEditor = (a: string, b: string) => {
+    const sa = ordenEditor.get(a) ?? Number.MAX_SAFE_INTEGER;
+    const sb = ordenEditor.get(b) ?? Number.MAX_SAFE_INTEGER;
+    if (sa !== sb) return sa - sb;
+    return a.localeCompare(b);
+  };
+  let semillas = roots;
+  if (semillas.length === 0 && todos.length > 0) {
+    const gradoEntrada = new Map<string, number>(todos.map((c) => [c, 0]));
+    for (const destinos of adj.values()) {
+      for (const t of destinos) {
+        if (gradoEntrada.has(t)) gradoEntrada.set(t, (gradoEntrada.get(t) ?? 0) + 1);
+      }
+    }
+    const inicio = [...todos].sort((a, b) => {
+      const ga = gradoEntrada.get(a) ?? 0;
+      const gb = gradoEntrada.get(b) ?? 0;
+      if (ga !== gb) return ga - gb;
+      return porOrdenEditor(a, b);
+    })[0];
+    semillas = [inicio];
+  }
+  const queue = [...semillas];
   const visited = new Set<string>();
   const order: string[] = [];
   while (queue.length) {
@@ -113,6 +154,13 @@ export function buildFlowNodeBfsOrder(nodes: FlowNodeRowLite[], opts: FlowOptRow
     order.push(code);
     for (const nx of adj.get(code) ?? []) {
       if (!visited.has(nx)) queue.push(nx);
+    }
+  }
+  /** Ramas sueltas (grafo desconectado): van al final, en orden del editor, para no perderlas. */
+  for (const code of [...todos].sort(porOrdenEditor)) {
+    if (!visited.has(code)) {
+      visited.add(code);
+      order.push(code);
     }
   }
   return order;
@@ -161,7 +209,7 @@ async function loadFlowCaptureGraphContext(
 
   const { data: nodesRaw, error: nErr } = await supabase
     .from("chat_flow_nodes")
-    .select("id, node_code, node_type, message_text, save_as_field, next_node_code")
+    .select("id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order")
     .eq("empresa_id", empresaId)
     .eq("flow_code", fc)
     .eq("is_active", true);
