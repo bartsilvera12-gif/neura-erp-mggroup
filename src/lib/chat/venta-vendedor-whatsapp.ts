@@ -28,8 +28,11 @@ import { maybeGenerateAndSendSorteoTicketDelivery } from "@/lib/sorteos/sorteo-t
 
 const LOG = "[venta-vendedor]";
 
-/** Inactividad tras la cual la sesión se descarta. El PIN viaja por el chat: no queda abierta. */
-const MINUTOS_VIGENCIA = 15;
+/**
+ * El modo venta NO expira solo: se sale con #SALIR o al terminar la venta. Antes caducaba a
+ * los 15 minutos y el vendedor volvía de atender a alguien y lo encontraba cerrado sin haber
+ * hecho nada.
+ */
 const MAX_INTENTOS_PIN = 3;
 /** Tope por venta, igual que el flujo del comprador. */
 const MAX_BOLETAS = 20;
@@ -108,7 +111,7 @@ async function leerSesion(
   try {
     const r = await e.pool.query(
       `SELECT conversation_id::text, empresa_id::text, revendedor_id::text, paso, datos, intentos_pin
-         FROM ${t} WHERE conversation_id = $1::uuid AND expira_at > now() LIMIT 1`,
+         FROM ${t} WHERE conversation_id = $1::uuid LIMIT 1`,
       [conversationId]
     );
     const row = r.rows[0] as Record<string, unknown> | undefined;
@@ -132,32 +135,21 @@ async function guardarSesion(s: Sesion): Promise<void> {
   const e = entorno();
   if (!e) return;
   const t = quoteSchemaTable(e.schema, "sorteo_venta_vendedor_sesiones");
+  /**
+   * Todos los parámetros van con su tipo explícito. Sin los `::` Postgres tiene que inferirlos
+   * y falla con «could not determine data type», que es lo que hacía que `#VENTA` no arrancara.
+   */
   await e.pool.query(
     `INSERT INTO ${t}
-       (conversation_id, empresa_id, revendedor_id, paso, datos, intentos_pin, expira_at, updated_at)
-     VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::jsonb, $6, $7::timestamptz, now())
+       (conversation_id, empresa_id, revendedor_id, paso, datos, intentos_pin, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::int, now())
      ON CONFLICT (conversation_id) DO UPDATE SET
        revendedor_id = EXCLUDED.revendedor_id,
        paso = EXCLUDED.paso,
        datos = EXCLUDED.datos,
        intentos_pin = EXCLUDED.intentos_pin,
-       expira_at = EXCLUDED.expira_at,
        updated_at = now()`,
-    [
-      s.conversation_id,
-      s.empresa_id,
-      s.revendedor_id,
-      s.paso,
-      JSON.stringify(s.datos),
-      s.intentos_pin,
-      /**
-       * El vencimiento se calcula acá y viaja como fecha. Antes se armaba en SQL con
-       * `($n || ' minutes')::interval` y Postgres no podía inferir el tipo del parámetro: la
-       * consulta fallaba, el webhook atrapaba el error y el `#VENTA` terminaba contestado por
-       * el flujo del comprador, como si el comando no existiera.
-       */
-      new Date(Date.now() + MINUTOS_VIGENCIA * 60_000).toISOString(),
-    ]
+    [s.conversation_id, s.empresa_id, s.revendedor_id, s.paso, JSON.stringify(s.datos), s.intentos_pin]
   );
 }
 
@@ -263,17 +255,18 @@ export async function procesarModoVentaVendedor(input: {
        * largo al flujo del comprador y el vendedor recibía el menú del sorteo: parecía que
        * `#VENTA` no existiera. Es mejor decirlo, y que quede claro en el log qué falta.
        */
-      console.error(
-        LOG,
-        "modo_venta_no_disponible",
-        "¿Falta correr la migración sorteo_venta_vendedor_sesiones?",
-        err instanceof Error ? err.message : err
-      );
+      const detalle = err instanceof Error ? err.message : String(err);
+      console.error(LOG, "modo_venta_no_disponible", detalle);
+      /**
+       * El error de base va en la respuesta a propósito. Sin esto el fallo era un «no está
+       * disponible» genérico y hubo que adivinar dos veces qué lo causaba; leer los logs del
+       * contenedor no siempre es posible. Lo ve el vendedor, que es personal de la empresa.
+       */
       await enviar(
         supabase,
         empresaId,
         conversationId,
-        "El modo venta todavía no está disponible. Avisale al administrador."
+        `No se pudo abrir el modo venta.\n\nDetalle: ${detalle.slice(0, 160)}`
       );
       return { manejado: true };
     }
