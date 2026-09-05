@@ -1,4 +1,5 @@
 import { downloadMetaMediaBytes } from "@/lib/chat/meta-media-download";
+import { medirEtapa } from "@/lib/chat/webhook-timing";
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
 import { flowNodeColumns, markMissingFlowNodeColumns } from "@/lib/chat/flow-node-columns";
 import { buildMontoCalculadoVars } from "@/lib/chat/flow-monto-calculado";
@@ -3856,13 +3857,50 @@ ${texto}` : prefijo;
       return { ok: true, status: "ignored_ycloud_image_pipeline" };
     }
 
+    /**
+     * Acuse inmediato del comprobante.
+     *
+     * Procesar la imagen tarda 17-20 s medidos —descarga desde Meta, subida y OCR— contra los
+     * ~9 s del resto de los pasos. En todo ese rato el cliente no ve absolutamente nada y cree
+     * que la imagen no llegó, así que la reenvía.
+     *
+     * No se puede adelantar el paso siguiente del flujo: el comprobante todavía puede
+     * rechazarse (duplicado, inválido) y ahí el bot manda otro mensaje. Diríamos «recibimos,
+     * cargá tus datos» y acto seguido «tu comprobante está duplicado». Por eso se avisa que
+     * llegó, sin prometer que es válido, y la validación sigue igual de estricta.
+     *
+     * Si este aviso falla, no se toca el pipeline: es cortesía, no parte del contrato.
+     */
+    try {
+      const acuse = "📸 Recibimos tu imagen, la estamos verificando…";
+      const ack = await flowSendText(sendCtx, acuse);
+      if (ack.ok) {
+        await persistOutgoingMessage({
+          conversation: state,
+          content: acuse,
+          messageType: "text",
+          waMessageId: ack.waMessageId,
+          raw: ack.raw,
+          senderType: "system",
+          automationSource: "flow_engine",
+        });
+      }
+    } catch (ackErr) {
+      console.warn("[flow-engine] acuse_comprobante_fallido", {
+        conversationId: state.id,
+        error: ackErr instanceof Error ? ackErr.message : String(ackErr),
+      });
+    }
+
     let media: { bytes: Uint8Array; mimeType: string };
     try {
-      media = await downloadMetaMedia({
-        mediaId: params.mediaId,
-        accessToken: sendCtx.token,
-        mimeTypeHint: params.mimeType ?? null,
-      });
+      media = await medirEtapa("img_descarga", () =>
+        downloadMetaMedia({
+          mediaId: params.mediaId,
+          accessToken: sendCtx.token,
+          mimeTypeHint: params.mimeType ?? null,
+        })
+      );
     } catch (graphErr) {
       const fb = params.fallbackPublicUrl?.trim();
       const graphMsg = graphErr instanceof Error ? graphErr.message : String(graphErr);
@@ -3956,10 +3994,12 @@ ${texto}` : prefijo;
 
     const ext = extensionFromMime(media.mimeType);
     const path = `${state.empresa_id}/${state.id}/${Date.now()}.${ext}`;
-    const upload = await supabase.storage.from(CHAT_MEDIA_BUCKET).upload(path, media.bytes, {
-      contentType: media.mimeType,
-      upsert: true,
-    });
+    const upload = await medirEtapa("img_subida", () =>
+      supabase.storage.from(CHAT_MEDIA_BUCKET).upload(path, media.bytes, {
+        contentType: media.mimeType,
+        upsert: true,
+      })
+    );
     if (upload.error) {
       console.error(FLOW_SORTEO_LOG, "processImageReply_early_exit", {
         status: "upload_failed",
@@ -4049,19 +4089,28 @@ ${texto}` : prefijo;
       },
     ];
 
-    const pipeline = await runComprobanteValidationPipeline({
+    /**
+     * Se fija acá porque dentro del closure TypeScript pierde el estrechamiento que hizo el
+     * `if (!state.flow_code) return` de más arriba.
+     */
+    const flowCodeImg = state.flow_code;
+
+    /** Incluye el OCR: es la etapa candidata a explicar los 20 s del paso de la imagen. */
+    const pipeline = await medirEtapa("img_validacion", () =>
+      runComprobanteValidationPipeline({
       supabase,
       empresaId: state.empresa_id,
       conversationId: state.id,
       channelId: channelIdFromConversation,
-      flowCode: state.flow_code,
+      flowCode: flowCodeImg,
       flowSessionId: imgFlowSid,
       mediaId: params.mediaId,
       publicUrl,
       bytes: Buffer.from(media.bytes),
       mimeType: media.mimeType,
       settings: valSettings,
-    });
+      })
+    );
 
     if (pipeline.kind === "resolved") {
       comprobanteStagingRows = pipeline.flowUpserts;
