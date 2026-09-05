@@ -171,6 +171,20 @@ export default function SorteoRevendedoresClient(props: {
         </Link>
       </div>
 
+      {/*
+        Esta pantalla es la vieja, atada a un sorteo, y da de alta sin PIN ni número de
+        vendedor. Se deja porque es la que genera los links y códigos de referido, pero conviene
+        que el alta se haga en el panel nuevo.
+      */}
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        Los vendedores creados acá quedan <strong>sin PIN y sin número</strong>. Para darlos de
+        alta con PIN, número correlativo y cierre de caja, usá el panel de{" "}
+        <Link href="/vendedores" className="font-medium underline">
+          Vendedores
+        </Link>
+        . Acá seguís generando sus links de acceso.
+      </div>
+
       {hintPhone}
 
       {err && (

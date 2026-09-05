@@ -55,6 +55,9 @@ export default function VendedoresPage() {
 
   /** PIN recién generado. Se muestra una vez y no se puede volver a consultar. */
   const [pinNuevo, setPinNuevo] = useState<{ nombre: string; pin: string } | null>(null);
+  /** Vendedor cuyo PIN se está editando, y el valor tipeado. */
+  const [editandoPin, setEditandoPin] = useState<string | null>(null);
+  const [pinEditado, setPinEditado] = useState("");
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -118,21 +121,24 @@ export default function VendedoresPage() {
     }
   }
 
-  async function regenerarPin(v: Vendedor) {
-    if (!window.confirm(`¿Generar un PIN nuevo para ${v.nombre}? El anterior deja de servir.`)) {
-      return;
-    }
+  /**
+   * Cambia el PIN. Con `pinElegido` lo fija el administrador; sin él lo genera el sistema.
+   * En los dos casos se muestra una sola vez: no queda guardado en claro en ningún lado.
+   */
+  async function cambiarPin(v: Vendedor, pinElegido?: string) {
     setErr(null);
     try {
       const d = await pedir<{ pin: string }>(`/api/vendedores/${v.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ regenerar_pin: true }),
+        body: JSON.stringify(pinElegido ? { pin: pinElegido } : { regenerar_pin: true }),
       });
       setPinNuevo({ nombre: v.nombre, pin: d.pin });
+      setEditandoPin(null);
+      setPinEditado("");
       await cargar();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "No se pudo generar el PIN.");
+      setErr(e instanceof Error ? e.message : "No se pudo cambiar el PIN.");
     }
   }
 
@@ -283,12 +289,53 @@ export default function VendedoresPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void regenerarPin(v)}
+                  onClick={() => {
+                    setEditandoPin(editandoPin === v.id ? null : v.id);
+                    setPinEditado("");
+                  }}
                   className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  Nuevo PIN
+                  {v.tiene_pin ? "Cambiar PIN" : "Poner PIN"}
                 </button>
               </div>
+
+              {editandoPin === v.id && (
+                <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <label className="block text-xs font-medium text-slate-600" htmlFor={`pin-${v.id}`}>
+                    PIN para {v.nombre}
+                  </label>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <input
+                      id={`pin-${v.id}`}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={pinEditado}
+                      onChange={(e) => setPinEditado(e.target.value.replace(/[^0-9]/g, "").slice(0, 8))}
+                      placeholder="4 a 8 dígitos"
+                      className="w-40 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm tabular-nums outline-none focus:border-[#4FAEB2]"
+                    />
+                    <button
+                      type="button"
+                      disabled={pinEditado.trim().length < 4}
+                      onClick={() => void cambiarPin(v, pinEditado.trim())}
+                      className="rounded-lg bg-[#1e2a5a] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                    >
+                      Guardar PIN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void cambiarPin(v)}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+                    >
+                      Generar al azar
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-slate-500">
+                    El PIN anterior deja de servir en el momento, y las sesiones que ese vendedor
+                    tuviera abiertas se cierran.
+                  </p>
+                </div>
+              )}
             </li>
           ))}
         </ul>
