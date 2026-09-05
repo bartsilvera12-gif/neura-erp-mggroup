@@ -2802,7 +2802,7 @@ export default function DashboardPage() {
       ) : null}
 
       {/* Contenido */}
-      {tab === "sorteos" && <RankingRevendedoresCard variante="panel" />}
+      {tab === "sorteos" && <RankingRevendedoresCard />}
 
       {tab === "comercial" && (
         <DashComercial

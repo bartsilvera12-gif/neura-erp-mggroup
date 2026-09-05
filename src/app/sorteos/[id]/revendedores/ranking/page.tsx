@@ -39,7 +39,7 @@ export default function RevendedoresRankingPage() {
       >
         ← Revendedores
       </Link>
-      <RankingRevendedoresCard variante="panel" sorteoId={id} sorteoNombre={nombreSorteo} />
+      <RankingRevendedoresCard sorteoId={id} sorteoNombre={nombreSorteo} />
     </div>
   );
 }
