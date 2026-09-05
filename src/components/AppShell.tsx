@@ -6,9 +6,18 @@ import Header from "./layout/Header";
 
 const STANDALONE_ROUTES = ["/login"];
 
-/** POS de revendedores (link mágico) vive fuera del chrome del ERP. */
+/**
+ * Pantallas del vendedor: el POS por link mágico y la impresión del ticket. Viven fuera del
+ * chrome del ERP porque quien las usa no es usuario del ERP: no tiene sesión, ni menú, ni
+ * módulos. La del ticket además se imprime, y el encabezado saldría en el papel.
+ */
 function isRevendedorPos(pathname: string | null): boolean {
-  return !!pathname && (pathname === "/rv" || pathname.startsWith("/rv/"));
+  if (!pathname) return false;
+  return (
+    pathname === "/rv" ||
+    pathname.startsWith("/rv/") ||
+    pathname.startsWith("/ticket/")
+  );
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

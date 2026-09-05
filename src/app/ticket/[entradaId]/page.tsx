@@ -87,6 +87,13 @@ export default function TicketPage() {
             >
               🖨 IMPRIMIR TICKET
             </button>
+            <button
+              type="button"
+              onClick={() => window.history.back()}
+              className="mt-2 w-full rounded-xl border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-800"
+            >
+              ← Volver
+            </button>
             <p className="mt-2 text-center text-[11px] text-slate-500">
               Papel {cfg.ancho_mm} mm · {copias === 1 ? "1 copia" : `${copias} copias`}. Reimprimir
               no genera otra venta ni otro número.

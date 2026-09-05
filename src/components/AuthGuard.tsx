@@ -30,7 +30,14 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
         pathname &&
         (PUBLIC_ROUTES.includes(pathname) ||
           pathname === "/rv" ||
-          pathname.startsWith("/rv/"))
+          pathname.startsWith("/rv/") ||
+          /**
+           * La impresión del ticket la abre el vendedor desde su POS, que no tiene sesión de
+           * ERP: sin esto el botón «Imprimir ticket» lo mandaba al login. Los datos siguen
+           * protegidos en la API, que exige sesión de vendedor —y solo sobre sus ventas— o de
+           * usuario del ERP.
+           */
+          pathname.startsWith("/ticket/"))
       ),
     [pathname]
   );
