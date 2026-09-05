@@ -7,6 +7,7 @@ import {
   getRevendedorSaldo,
 } from "@/lib/sorteos/revendedor-session";
 import { createSorteoManualCashSaleViaDirectPostgres } from "@/lib/sorteos/sorteo-order-manual-pg";
+import { posDesbloqueado } from "@/lib/sorteos/revendedor-pin-session";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,13 @@ export async function POST(request: NextRequest) {
         errorResponse("Tu sesión de revendedor no es válida o fue revocada. Volvé a abrir tu link."),
         { status: 401 }
       );
+    }
+    /**
+     * El PIN se exige acá, no solo en la pantalla: quien tenga el link puede llamar a esta
+     * ruta directamente, y validar únicamente en el navegador no protege nada.
+     */
+    if (ctx.exigePin && !(await posDesbloqueado(ctx.revendedorId, ctx.pinActualizadoAt))) {
+      return NextResponse.json(errorResponse("Ingresá tu PIN para vender."), { status: 401 });
     }
     if (ctx.sorteo.estado !== "activo") {
       return NextResponse.json(errorResponse("El sorteo no está activo."), { status: 403 });

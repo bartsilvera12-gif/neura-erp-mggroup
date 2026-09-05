@@ -22,6 +22,8 @@ export type RevendedorPosContext = {
   numeroVendedor: number | null;
   /** Tiene PIN configurado: el POS debe pedirlo antes de dejar vender. */
   exigePin: boolean;
+  /** Entra en la firma del desbloqueo: al rotar el PIN caducan las sesiones abiertas. */
+  pinActualizadoAt: string | null;
   cupoBoletos: number | null;
   sorteo: { nombre: string; precioPorBoleto: number; estado: string };
 };
@@ -55,7 +57,7 @@ export async function resolveRevendedorByAccessToken(
    */
   const r = await sp.pool.query(
     `SELECT rv.id, rv.empresa_id, rv.nombre, rv.cupo_boletos,
-            rv.numero_vendedor, rv.pin_hash,
+            rv.numero_vendedor, rv.pin_hash, rv.pin_actualizado_at,
             s.id AS sorteo_id, s.nombre AS sorteo_nombre, s.precio_por_boleto, s.estado
        FROM ${qtRev} rv
        CROSS JOIN LATERAL (
@@ -82,6 +84,7 @@ export async function resolveRevendedorByAccessToken(
         cupo_boletos: number | null;
         numero_vendedor: number | null;
         pin_hash: string | null;
+        pin_actualizado_at: string | Date | null;
         sorteo_nombre: string | null;
         precio_por_boleto: string | number | null;
         estado: string | null;
@@ -95,6 +98,12 @@ export async function resolveRevendedorByAccessToken(
     nombre: String(row.nombre ?? ""),
     numeroVendedor: row.numero_vendedor == null ? null : Number(row.numero_vendedor),
     exigePin: Boolean((row.pin_hash ?? "").trim()),
+    pinActualizadoAt:
+      row.pin_actualizado_at == null
+        ? null
+        : row.pin_actualizado_at instanceof Date
+          ? row.pin_actualizado_at.toISOString()
+          : String(row.pin_actualizado_at),
     cupoBoletos: row.cupo_boletos == null ? null : Number(row.cupo_boletos),
     sorteo: {
       nombre: String(row.sorteo_nombre ?? ""),

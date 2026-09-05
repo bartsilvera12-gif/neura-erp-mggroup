@@ -3,6 +3,7 @@ import { successResponse, errorResponse } from "@/lib/api/response";
 import { getSingleClientSchemaOrNull } from "@/lib/instance/single-client";
 import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { readRevendedorSession } from "@/lib/sorteos/revendedor-session";
+import { posDesbloqueado } from "@/lib/sorteos/revendedor-pin-session";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,11 @@ export async function GET(request: NextRequest) {
         errorResponse("Tu sesión de revendedor no es válida o fue revocada. Volvé a abrir tu link."),
         { status: 401 }
       );
+    }
+
+    /** Mismo criterio que la venta: sin PIN no se consultan datos de compradores. */
+    if (ctx.exigePin && !(await posDesbloqueado(ctx.revendedorId, ctx.pinActualizadoAt))) {
+      return NextResponse.json(errorResponse("Ingresá tu PIN."), { status: 401 });
     }
 
     const documentoRaw = request.nextUrl.searchParams.get("documento") ?? "";
