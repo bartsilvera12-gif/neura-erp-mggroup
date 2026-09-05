@@ -168,9 +168,28 @@ export default function RankingRevendedoresCard({ sorteoId }: { sorteoId?: strin
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Análisis de rendimiento</h2>
-        <p className="text-sm text-slate-500">Ranking y recaudación por vendedor</p>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-slate-900">Análisis de rendimiento</h2>
+          <p className="text-sm text-slate-500">Ranking y recaudación por vendedor</p>
+        </div>
+        {/* Desde el dashboard se va a administrar vendedores: alta, PIN y cierre de caja. */}
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Link
+            href="/vendedores"
+            className="rounded-lg border border-[#4FAEB2]/30 bg-[#4FAEB2]/10 px-3 py-2 text-sm font-medium text-[#3F8E91] hover:bg-[#4FAEB2]/20"
+          >
+            👤 Vendedores
+          </Link>
+          {data?.sorteo && (
+            <Link
+              href={`/sorteos/${data.sorteo.id}/revendedores`}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Links de acceso
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
