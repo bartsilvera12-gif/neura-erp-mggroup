@@ -15,8 +15,13 @@ export const REVENDEDOR_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 días
 export type RevendedorPosContext = {
   revendedorId: string;
   empresaId: string;
+  /** Sorteo que vende: el suyo si lo tiene asignado, o el activo de la empresa. */
   sorteoId: string;
   nombre: string;
+  /** Correlativo por empresa; sale impreso en el ticket. Null en altas viejas sin migrar. */
+  numeroVendedor: number | null;
+  /** Tiene PIN configurado: el POS debe pedirlo antes de dejar vender. */
+  exigePin: boolean;
   cupoBoletos: number | null;
   sorteo: { nombre: string; precioPorBoleto: number; estado: string };
 };
@@ -42,11 +47,28 @@ export async function resolveRevendedorByAccessToken(
   if (!sp) return null;
   const qtRev = quoteSchemaTable(sp.schema, "sorteo_revendedores");
   const qtSor = quoteSchemaTable(sp.schema, "sorteos");
+  /**
+   * `sorteo_id` es opcional desde que los vendedores son un módulo de la empresa: NULL
+   * significa «vende el sorteo activo». Por eso el sorteo se resuelve con LATERAL en vez de
+   * un JOIN directo — con JOIN, un vendedor de empresa no resolvía sesión y su link daba
+   * inválido. Las filas viejas, atadas a un sorteo, siguen resolviendo ese mismo sorteo.
+   */
   const r = await sp.pool.query(
-    `SELECT rv.id, rv.empresa_id, rv.sorteo_id, rv.nombre, rv.cupo_boletos,
-            s.nombre AS sorteo_nombre, s.precio_por_boleto, s.estado
+    `SELECT rv.id, rv.empresa_id, rv.nombre, rv.cupo_boletos,
+            rv.numero_vendedor, rv.pin_hash,
+            s.id AS sorteo_id, s.nombre AS sorteo_nombre, s.precio_por_boleto, s.estado
        FROM ${qtRev} rv
-       JOIN ${qtSor} s ON s.id = rv.sorteo_id
+       CROSS JOIN LATERAL (
+         SELECT so.id, so.nombre, so.precio_por_boleto, so.estado
+           FROM ${qtSor} so
+          WHERE so.empresa_id = rv.empresa_id
+            AND (
+              (rv.sorteo_id IS NOT NULL AND so.id = rv.sorteo_id)
+              OR (rv.sorteo_id IS NULL AND so.estado = 'activo')
+            )
+          ORDER BY so.created_at DESC
+          LIMIT 1
+       ) s
       WHERE rv.access_token = $1 AND rv.access_revoked_at IS NULL AND rv.activo = true
       LIMIT 1`,
     [token]
@@ -58,6 +80,8 @@ export async function resolveRevendedorByAccessToken(
         sorteo_id: string;
         nombre: string | null;
         cupo_boletos: number | null;
+        numero_vendedor: number | null;
+        pin_hash: string | null;
         sorteo_nombre: string | null;
         precio_por_boleto: string | number | null;
         estado: string | null;
@@ -69,6 +93,8 @@ export async function resolveRevendedorByAccessToken(
     empresaId: String(row.empresa_id),
     sorteoId: String(row.sorteo_id),
     nombre: String(row.nombre ?? ""),
+    numeroVendedor: row.numero_vendedor == null ? null : Number(row.numero_vendedor),
+    exigePin: Boolean((row.pin_hash ?? "").trim()),
     cupoBoletos: row.cupo_boletos == null ? null : Number(row.cupo_boletos),
     sorteo: {
       nombre: String(row.sorteo_nombre ?? ""),
