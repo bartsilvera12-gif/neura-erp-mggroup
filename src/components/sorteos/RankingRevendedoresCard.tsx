@@ -49,6 +49,24 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
 /** Cuántos entran en la tarjeta compacta; en panel se listan todos. */
 const TOPE_TARJETA = 5;
 
+/** En el panel la fila entera es un enlace al cierre de caja; en la tarjeta, no. */
+function ItemEnvoltorio({
+  esPanel,
+  revendedorId,
+  children,
+}: {
+  esPanel: boolean;
+  revendedorId: string;
+  children: React.ReactNode;
+}) {
+  if (!esPanel) return <>{children}</>;
+  return (
+    <Link href={`/vendedores/${revendedorId}`} className="block rounded-lg hover:bg-slate-50">
+      {children}
+    </Link>
+  );
+}
+
 /**
  * Ranking de vendedores por boletas vendidas.
  *
@@ -123,6 +141,10 @@ export default function RankingRevendedoresCard({
         const pct = tope > 0 ? Math.round((f.boletas / tope) * 100) : 0;
         return (
           <li key={f.revendedor_id} className={esPanel ? "py-3" : undefined}>
+            {/* En el panel cada vendedor lleva a su cierre de caja, que es a donde se va
+                después de mirar el ranking. En la tarjeta compacta no, para no llenar el
+                dashboard de enlaces. */}
+            <ItemEnvoltorio esPanel={esPanel} revendedorId={f.revendedor_id}>
             <div className="flex items-start gap-2.5">
               <span className="w-6 shrink-0 pt-0.5 text-center text-sm font-bold text-slate-400">
                 {medalla(pos) || pos}
@@ -156,6 +178,7 @@ export default function RankingRevendedoresCard({
                 </div>
               </div>
             </div>
+            </ItemEnvoltorio>
           </li>
         );
       })}

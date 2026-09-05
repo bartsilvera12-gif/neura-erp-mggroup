@@ -268,6 +268,12 @@ export default function VendedoresPage() {
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
+                <Link
+                  href={`/vendedores/${v.id}`}
+                  className="rounded-lg border border-[#4FAEB2]/40 bg-[#4FAEB2]/10 px-2.5 py-1.5 text-xs font-medium text-[#3F8E91]"
+                >
+                  Cierre de caja
+                </Link>
                 <button
                   type="button"
                   onClick={() => void alternarEstado(v)}
