@@ -3,6 +3,16 @@ import type { SupabaseAdmin } from "@/lib/chat/types";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import { quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
+import { medirEtapa } from "@/lib/chat/webhook-timing";
+
+/** Igual que `pool.query`, sumando su duración a la etapa `db` del webhook medido. */
+async function consultaMedida(
+  pool: Pool,
+  texto: string,
+  params?: unknown[]
+): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }> {
+  return medirEtapa("db", () => pool.query(texto, params as never[])) as never;
+}
 
 /**
  * Shim mínimo PostgREST→Postgres para tablas chat_* / sorteos en schemas tenant no expuestos.
@@ -307,7 +317,7 @@ export function createTenantPgChatSupabaseShim(opts: TenantPgChatSupabaseShimOpt
           if (this.selectCountOpts?.count === "exact" && this.selectCountOpts.head) {
             const wh = this.buildWhere(params);
             const q = `SELECT COUNT(*)::bigint AS c FROM ${tsql} ${wh}`;
-            const r = await pool.query(q, params);
+            const r = await consultaMedida(pool, q, params);
             const c = r.rows?.[0] as { c?: string } | undefined;
             const n = c?.c != null ? Number(c.c) : 0;
             return { data: null, error: null, count: n } as unknown as {
@@ -331,7 +341,7 @@ export function createTenantPgChatSupabaseShim(opts: TenantPgChatSupabaseShimOpt
                 : "";
 
           const q = `SELECT ${this.cols} FROM ${tsql} ${wh} ${ordFix} ${lim}`.replace(/\s+/g, " ").trim();
-          const r = await pool.query(q, params);
+          const r = await consultaMedida(pool, q, params);
           const rows = r.rows ?? [];
           if (this.terminal === "maybeSingle") {
             if (rows.length > 1) {
@@ -369,7 +379,7 @@ export function createTenantPgChatSupabaseShim(opts: TenantPgChatSupabaseShimOpt
 
           const q = `INSERT INTO ${tsql} (${allCols.map((c) => `"${c}"`).join(", ")}) VALUES ${placeholders.join(", ")} ${ret}`.trim();
           try {
-            const r = await pool.query(q, params);
+            const r = await consultaMedida(pool, q, params);
             const outRows = r.rows ?? [];
             if (this.terminal === "maybeSingle") {
               return { data: outRows[0] ?? null, error: null };
@@ -403,7 +413,7 @@ export function createTenantPgChatSupabaseShim(opts: TenantPgChatSupabaseShimOpt
           }
           const q = `DELETE FROM ${tsql} ${wh}`.trim();
           try {
-            await pool.query(q, params);
+            await consultaMedida(pool, q, params);
             return { data: null, error: null };
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
@@ -422,7 +432,7 @@ export function createTenantPgChatSupabaseShim(opts: TenantPgChatSupabaseShimOpt
               ? `RETURNING ${this.returningCols}`
               : "";
           const q = `UPDATE ${tsql} SET ${sets.join(", ")} ${wh} ${ret}`.trim();
-          const r = await pool.query(q, params);
+          const r = await consultaMedida(pool, q, params);
           const rows = r.rows ?? [];
           if (!ret) {
             return { data: null, error: null };
@@ -469,7 +479,7 @@ export function createTenantPgChatSupabaseShim(opts: TenantPgChatSupabaseShimOpt
             ${ret}
           `.trim();
           try {
-            const r = await pool.query(q, params);
+            const r = await consultaMedida(pool, q, params);
             const outRows = r.rows ?? [];
             if (this.returningCols) {
               if (this.terminal === "maybeSingle") {
@@ -561,7 +571,7 @@ export function createTenantPgChatSupabaseShim(opts: TenantPgChatSupabaseShimOpt
           const empresaId = args?.p_empresa_id ?? null;
           const prefijo = args?.p_prefijo_default ?? "FAC-";
           const q = `SELECT "${schema}".next_numero_factura_empresa($1::uuid, $2::text) AS r`;
-          const r = await pool.query(q, [empresaId, prefijo]);
+          const r = await consultaMedida(pool, q, [empresaId, prefijo]);
           const v = r.rows?.[0]?.r ?? null;
           return { data: v as T, error: null };
         } catch (e: unknown) {
