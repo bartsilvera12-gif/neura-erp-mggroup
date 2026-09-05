@@ -14,16 +14,28 @@ export type RevendedorRankingRow = {
   monto: number;
 };
 
+export type ProgresoSorteo = {
+  vendidas: number;
+  maximo: number | null;
+  restante: number | null;
+};
+
 export type RevendedoresRanking = {
   revendedores: RevendedorRankingRow[];
   totales: { boletas: number; boletas_hoy: number; ventas: number; monto: number };
+  progreso: ProgresoSorteo;
+};
+
+export type FiltrosRanking = {
+  /** ISO. Si falta, no se acota por fecha: el ranking es histórico del sorteo. */
+  desdeIso?: string | null;
+  hastaIso?: string | null;
+  /** Un solo vendedor, para el análisis individual. */
+  revendedorId?: string | null;
 };
 
 /**
- * Ranking de revendedores de un sorteo, ordenado por boletas vendidas, en UNA consulta.
- *
- * El endpoint por revendedor (`/revendedores/:revId/stats`) hace varias consultas para cada
- * uno: para un ranking serían decenas de viajes, y la base está lejos del servidor.
+ * Ranking de vendedores de un sorteo, ordenado por boletas vendidas, en UNA consulta.
  *
  * Mismo criterio de venta que los KPIs del panel (`estado_pago <> 'rechazado'`, boletas =
  * cupones emitidos) para que las pantallas no muestren números distintos.
@@ -32,17 +44,34 @@ export async function cargarRankingRevendedores(
   pool: Pool,
   schema: string,
   empresaId: string,
-  sorteoId: string
+  sorteoId: string,
+  filtros: FiltrosRanking = {}
 ): Promise<RevendedoresRanking> {
   const tRev = quoteSchemaTable(schema, "sorteo_revendedores");
   const tEnt = quoteSchemaTable(schema, "sorteo_entradas");
   const tCup = quoteSchemaTable(schema, "sorteo_cupones");
+  const tSor = quoteSchemaTable(schema, "sorteos");
   const dia = asuncionDayBoundsUtc();
 
   /**
-   * Monto y boletas se agregan por separado a propósito: juntar entradas con cupones en un
-   * solo GROUP BY multiplicaría el monto por la cantidad de cupones de cada venta.
+   * Los filtros van como parámetros anulables en vez de armar SQL distinto: con `$n IS NULL
+   * OR ...` la consulta es una sola y no hay concatenación de texto que revisar.
    */
+  const params = [
+    empresaId,
+    sorteoId,
+    dia.start,
+    dia.end,
+    filtros.desdeIso ?? null,
+    filtros.hastaIso ?? null,
+    filtros.revendedorId ?? null,
+  ];
+
+  const rangoVentas = `
+    AND ($5::timestamptz IS NULL OR e.created_at >= $5::timestamptz)
+    AND ($6::timestamptz IS NULL OR e.created_at <= $6::timestamptz)
+  `;
+
   const sql = `
     WITH ventas AS (
       SELECT e.revendedor_id,
@@ -53,6 +82,7 @@ export async function cargarRankingRevendedores(
          AND e.sorteo_id = $2::uuid
          AND e.revendedor_id IS NOT NULL
          AND e.estado_pago <> 'rechazado'
+         ${rangoVentas}
        GROUP BY e.revendedor_id
     ),
     boletas AS (
@@ -67,6 +97,7 @@ export async function cargarRankingRevendedores(
          AND e.sorteo_id = $2::uuid
          AND e.revendedor_id IS NOT NULL
          AND e.estado_pago <> 'rechazado'
+         ${rangoVentas}
        GROUP BY e.revendedor_id
     )
     SELECT r.id::text               AS revendedor_id,
@@ -80,11 +111,18 @@ export async function cargarRankingRevendedores(
       LEFT JOIN ventas  v ON v.revendedor_id = r.id
       LEFT JOIN boletas b ON b.revendedor_id = r.id
      WHERE r.empresa_id = $1::uuid
-       AND r.sorteo_id = $2::uuid
+       AND ($7::uuid IS NULL OR r.id = $7::uuid)
      ORDER BY boletas DESC, monto DESC, r.nombre ASC
   `;
 
-  const r = await pool.query(sql, [empresaId, sorteoId, dia.start, dia.end]);
+  const [r, prog] = await Promise.all([
+    pool.query(sql, params),
+    pool.query<{ vendidas: string; maximo: number | null }>(
+      `SELECT COALESCE(total_boletos_vendidos, 0)::bigint AS vendidas, max_boletos AS maximo
+         FROM ${tSor} WHERE id = $1::uuid AND empresa_id = $2::uuid LIMIT 1`,
+      [sorteoId, empresaId]
+    ),
+  ]);
 
   const revendedores: RevendedorRankingRow[] = (r.rows ?? []).map(
     (row: Record<string, unknown>) => ({
@@ -98,6 +136,10 @@ export async function cargarRankingRevendedores(
     })
   );
 
+  const pr = prog.rows[0];
+  const vendidas = Number(pr?.vendidas ?? 0);
+  const maximo = pr?.maximo == null ? null : Number(pr.maximo);
+
   return {
     revendedores,
     totales: {
@@ -106,7 +148,35 @@ export async function cargarRankingRevendedores(
       ventas: revendedores.reduce((a, f) => a + f.ventas, 0),
       monto: revendedores.reduce((a, f) => a + f.monto, 0),
     },
+    /** Progreso del sorteo completo, no solo de los vendedores: es la meta del sorteo. */
+    progreso: {
+      vendidas,
+      maximo,
+      restante: maximo == null ? null : Math.max(0, maximo - vendidas),
+    },
   };
+}
+
+/** Sorteos de la empresa para el selector de campaña; el activo primero. */
+export async function listarSorteosParaFiltro(
+  pool: Pool,
+  schema: string,
+  empresaId: string
+): Promise<Array<{ id: string; nombre: string; estado: string }>> {
+  const t = quoteSchemaTable(schema, "sorteos");
+  const r = await pool.query(
+    `SELECT id::text AS id, nombre, estado
+       FROM ${t}
+      WHERE empresa_id = $1::uuid
+      ORDER BY (estado = 'activo') DESC, created_at DESC
+      LIMIT 100`,
+    [empresaId]
+  );
+  return (r.rows ?? []).map((row: Record<string, unknown>) => ({
+    id: String(row.id ?? ""),
+    nombre: String(row.nombre ?? "").trim(),
+    estado: String(row.estado ?? "").trim(),
+  }));
 }
 
 /** Sorteo activo más reciente de la empresa; null si no hay ninguno. */
