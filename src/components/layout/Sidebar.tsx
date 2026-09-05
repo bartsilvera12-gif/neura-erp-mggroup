@@ -185,9 +185,17 @@ const MENU_STRUCTURE: MenuItem[] = [
     // ya existen las pestañas internas que llevan a Tickets/Comprobantes, así que se oculta
     // el subitem duplicado del sidebar. Otros clientes mantienen el subitem.
     // La ruta /sorteos/tickets sigue existiendo (no se rompe).
+    /**
+     * «Vendedores» va como subitem de Sorteos y no como módulo aparte: así no hace falta
+     * darlo de alta en el catálogo ni habilitarlo empresa por empresa, y queda visible para
+     * quien ya tiene Sorteos, que es exactamente quien lo necesita.
+     */
     children: isSorteosClientSchema(process.env.NEXT_PUBLIC_NEURA_CLIENT_SCHEMA)
-      ? undefined
-      : [{ label: "Tickets / Comprobantes", href: "/sorteos/tickets", exactMatch: true }],
+      ? [{ label: "Vendedores", href: "/vendedores" }]
+      : [
+          { label: "Tickets / Comprobantes", href: "/sorteos/tickets", exactMatch: true },
+          { label: "Vendedores", href: "/vendedores" },
+        ],
   },
   {
     key: "etiquetas",

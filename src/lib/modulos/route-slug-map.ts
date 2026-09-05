@@ -121,5 +121,9 @@ export function pathRequiresModuleSlug(pathname: string): string | null {
   if (p.startsWith("/crm")) return "crm";
   if (p.startsWith("/marketing")) return "marketing";
   if (p.startsWith("/sorteos")) return "sorteos";
+  /** El panel de vendedores es parte de Sorteos: sin ese módulo no debería abrirse. */
+  if (p.startsWith("/vendedores")) return "sorteos";
+  /** La impresión del ticket la abre el vendedor desde su POS, que no es usuario del ERP. */
+  if (p.startsWith("/ticket/")) return null;
   return null;
 }
