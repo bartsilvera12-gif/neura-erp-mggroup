@@ -13,6 +13,7 @@ type Vendedor = {
   activo: boolean;
   tiene_pin: boolean;
   tiene_link: boolean;
+  access_token: string | null;
   cupo_boletos: number | null;
 };
 
@@ -58,6 +59,9 @@ export default function VendedoresPage() {
   /** Vendedor cuyo PIN se está editando, y el valor tipeado. */
   const [editandoPin, setEditandoPin] = useState<string | null>(null);
   const [pinEditado, setPinEditado] = useState("");
+  const [copiado, setCopiado] = useState<string | null>(null);
+  /** Origen del sitio: el link se arma en el navegador para no depender de una env. */
+  const [origen, setOrigen] = useState("");
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -70,6 +74,10 @@ export default function VendedoresPage() {
     } finally {
       setCargando(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") setOrigen(window.location.origin);
   }, []);
 
   useEffect(() => {
@@ -104,6 +112,44 @@ export default function VendedoresPage() {
       setErr(e instanceof Error ? e.message : "No se pudo crear.");
     } finally {
       setGuardando(false);
+    }
+  }
+
+  /**
+   * Genera (o rota) el link del POS. Rotarlo invalida el anterior en el momento, que es lo que
+   * se quiere cuando un vendedor deja de trabajar o el link se filtró.
+   */
+  async function generarLink(v: Vendedor) {
+    if (v.tiene_link && !window.confirm(`${v.nombre} ya tiene link. El anterior dejará de funcionar. ¿Generar uno nuevo?`)) {
+      return;
+    }
+    setErr(null);
+    try {
+      await pedir(`/api/sorteos/revendedores/${v.id}/access-link`, { method: "POST" });
+      await cargar();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "No se pudo generar el link.");
+    }
+  }
+
+  async function revocarLink(v: Vendedor) {
+    if (!window.confirm(`¿Revocar el link de ${v.nombre}? Deja de funcionar de inmediato.`)) return;
+    setErr(null);
+    try {
+      await pedir(`/api/sorteos/revendedores/${v.id}/access-link`, { method: "DELETE" });
+      await cargar();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "No se pudo revocar el link.");
+    }
+  }
+
+  async function copiar(texto: string, id: string) {
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiado(id);
+      window.setTimeout(() => setCopiado(null), 1500);
+    } catch {
+      setErr("No se pudo copiar. Seleccioná el link y copialo a mano.");
     }
   }
 
@@ -297,7 +343,66 @@ export default function VendedoresPage() {
                 >
                   {v.tiene_pin ? "Cambiar PIN" : "Poner PIN"}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void generarLink(v)}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  {v.tiene_link ? "Nuevo link" : "Generar link"}
+                </button>
+                {v.tiene_link && (
+                  <button
+                    type="button"
+                    onClick={() => void revocarLink(v)}
+                    className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+                  >
+                    Revocar link
+                  </button>
+                )}
               </div>
+
+              {/* Link del POS: se muestra acá para no tener que ir a otra pantalla a buscarlo. */}
+              {v.access_token && origen && (
+                <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Link del vendedor
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <a
+                        href={`${origen}/rv/${encodeURIComponent(v.access_token)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block break-all text-xs text-[#4FAEB2] hover:underline"
+                      >
+                        {`${origen}/rv/${v.access_token}`}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void copiar(`${origen}/rv/${v.access_token}`, v.id)
+                        }
+                        className="mt-1.5 rounded-lg bg-[#1e2a5a] px-3 py-1.5 text-xs font-semibold text-white"
+                      >
+                        {copiado === v.id ? "¡Copiado!" : "Copiar link"}
+                      </button>
+                    </div>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(
+                        `${origen}/rv/${v.access_token}`
+                      )}`}
+                      alt={`QR de ${v.nombre}`}
+                      className="h-[110px] w-[110px] shrink-0 rounded bg-white p-1"
+                    />
+                  </div>
+                  {!v.tiene_pin && (
+                    <p className="mt-2 text-[11px] text-amber-700">
+                      Este vendedor todavía no tiene PIN: con el link entra directo a vender.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {editandoPin === v.id && (
                 <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -342,7 +447,7 @@ export default function VendedoresPage() {
       </section>
 
       <p className="text-[11px] leading-relaxed text-slate-500">
-        El link de acceso al POS de cada vendedor se genera desde{" "}
+        Cada vendedor vende el sorteo activo. Los códigos de referido para atribuir ventas por WhatsApp se administran en{" "}
         <Link href="/sorteos" className="text-[#4FAEB2] hover:underline">
           Sorteos
         </Link>{" "}

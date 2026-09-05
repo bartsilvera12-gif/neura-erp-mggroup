@@ -14,6 +14,8 @@ export type VendedorRow = {
   activo: boolean;
   tiene_pin: boolean;
   tiene_link: boolean;
+  /** Token del link del POS. Lo ve solo el administrador, que es quien lo reparte. */
+  access_token: string | null;
   cupo_boletos: number | null;
   sorteo_id: string | null;
   created_at: string | null;
@@ -30,17 +32,22 @@ function mapear(row: Record<string, unknown>): VendedorRow {
     activo: row.activo !== false,
     tiene_pin: Boolean(row.tiene_pin),
     tiene_link: Boolean(row.tiene_link),
+    access_token: row.access_token == null ? null : String(row.access_token),
     cupo_boletos: row.cupo_boletos == null ? null : Number(row.cupo_boletos),
     sorteo_id: row.sorteo_id == null ? null : String(row.sorteo_id),
     created_at: row.created_at == null ? null : String(row.created_at),
   };
 }
 
-/** Nunca expone `pin_hash` ni `access_token`: solo si existen. */
+/**
+ * `pin_hash` nunca sale: solo si existe. El `access_token` sí, porque el administrador es
+ * quien reparte el link; se omite si está revocado, para no mostrar uno que ya no sirve.
+ */
 const COLUMNAS = `
   id::text AS id, numero_vendedor, nombre, cargo, telefono, codigo_referido, activo,
   (pin_hash IS NOT NULL AND pin_hash <> '') AS tiene_pin,
   (access_token IS NOT NULL AND access_revoked_at IS NULL) AS tiene_link,
+  CASE WHEN access_revoked_at IS NULL THEN access_token END AS access_token,
   cupo_boletos, sorteo_id::text AS sorteo_id, created_at
 `;
 
