@@ -10,6 +10,7 @@ import {
   buildSorteoTicketQrPayload,
   renderSorteoTicketQrDataUrl,
 } from "@/lib/sorteos/sorteo-ticket-qr";
+import { buildSorteoTicketMinimalSvg } from "@/lib/sorteos/sorteo-ticket-render-minimal";
 
 export type SorteoTicketRenderInput = {
   empresaNombre: string;
@@ -767,6 +768,16 @@ export async function renderTicketPngUnified(input: SorteoTicketRenderInput): Pr
           )
         : null,
   };
+
+  /**
+   * Estilo "minimal" (opt-in por `ticket_image_config.estilo_minimal`): comprobante blanco,
+   * datos monoespaciados y QR grande. Tiene prioridad sobre plantilla/auto y solo aplica a los
+   * sorteos que lo pidan explícitamente — no cambia el comprobante de ningún otro cliente.
+   */
+  if ((withQr.config as { estilo_minimal?: unknown }).estilo_minimal === true) {
+    const svg = buildSorteoTicketMinimalSvg(withQr);
+    return renderSorteoTicketPng(svg);
+  }
 
   const hasTemplate =
     withQr.templateBytes && withQr.templateBytes.length > 0 && withQr.templateMime;
