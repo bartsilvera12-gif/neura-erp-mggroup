@@ -47,15 +47,15 @@ type Sesion = {
 
 export type ResultadoModoVenta = { manejado: boolean };
 
+/**
+ * El comando exige el numeral. «venta» a secas queda afuera a propósito: es una palabra que un
+ * comprador escribe con total naturalidad («quiero una venta», «venta?»), y con ella el bot le
+ * respondería «ingresá tu número de vendedor» en vez de venderle. El numeral es justamente lo
+ * que la vuelve un comando y no una palabra suelta.
+ */
 function esComandoVenta(texto: string): boolean {
   const t = texto.trim().toLowerCase().replace(/\s+/g, " ");
-  return (
-    t === "#venta" ||
-    t === "# venta" ||
-    t === "venta" ||
-    t === "numeral venta" ||
-    t === "#ventas"
-  );
+  return t === "#venta" || t === "# venta" || t === "#ventas" || t === "numeral venta";
 }
 
 function esComandoSalir(texto: string): boolean {
