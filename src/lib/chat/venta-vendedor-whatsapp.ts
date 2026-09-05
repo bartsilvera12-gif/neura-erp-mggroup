@@ -135,7 +135,7 @@ async function guardarSesion(s: Sesion): Promise<void> {
   await e.pool.query(
     `INSERT INTO ${t}
        (conversation_id, empresa_id, revendedor_id, paso, datos, intentos_pin, expira_at, updated_at)
-     VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::jsonb, $6, now() + ($7 || ' minutes')::interval, now())
+     VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::jsonb, $6, $7::timestamptz, now())
      ON CONFLICT (conversation_id) DO UPDATE SET
        revendedor_id = EXCLUDED.revendedor_id,
        paso = EXCLUDED.paso,
@@ -150,7 +150,13 @@ async function guardarSesion(s: Sesion): Promise<void> {
       s.paso,
       JSON.stringify(s.datos),
       s.intentos_pin,
-      String(MINUTOS_VIGENCIA),
+      /**
+       * El vencimiento se calcula acá y viaja como fecha. Antes se armaba en SQL con
+       * `($n || ' minutes')::interval` y Postgres no podía inferir el tipo del parámetro: la
+       * consulta fallaba, el webhook atrapaba el error y el `#VENTA` terminaba contestado por
+       * el flujo del comprador, como si el comando no existiera.
+       */
+      new Date(Date.now() + MINUTOS_VIGENCIA * 60_000).toISOString(),
     ]
   );
 }
@@ -242,14 +248,35 @@ export async function procesarModoVentaVendedor(input: {
 
   if (!sesion) {
     if (!esComandoVenta(t)) return { manejado: false };
-    await guardarSesion({
-      conversation_id: conversationId,
-      empresa_id: empresaId,
-      revendedor_id: null,
-      paso: "id",
-      datos: {},
-      intentos_pin: 0,
-    });
+    try {
+      await guardarSesion({
+        conversation_id: conversationId,
+        empresa_id: empresaId,
+        revendedor_id: null,
+        paso: "id",
+        datos: {},
+        intentos_pin: 0,
+      });
+    } catch (err) {
+      /**
+       * Sin la tabla de sesiones el modo venta no puede arrancar. Antes el mensaje seguía de
+       * largo al flujo del comprador y el vendedor recibía el menú del sorteo: parecía que
+       * `#VENTA` no existiera. Es mejor decirlo, y que quede claro en el log qué falta.
+       */
+      console.error(
+        LOG,
+        "modo_venta_no_disponible",
+        "¿Falta correr la migración sorteo_venta_vendedor_sesiones?",
+        err instanceof Error ? err.message : err
+      );
+      await enviar(
+        supabase,
+        empresaId,
+        conversationId,
+        "El modo venta todavía no está disponible. Avisale al administrador."
+      );
+      return { manejado: true };
+    }
     await enviar(
       supabase,
       empresaId,
