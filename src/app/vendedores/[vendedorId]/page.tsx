@@ -254,6 +254,13 @@ export default function VendedorCierrePage() {
                           rendida
                         </span>
                       )}
+                      {/* Reimprime la venta ya registrada: mismo ticket, mismo número. */}
+                      <Link
+                        href={`/ticket/${o.entrada_id}`}
+                        className="font-medium text-[#4FAEB2] hover:underline"
+                      >
+                        Reimprimir
+                      </Link>
                     </div>
                   </li>
                 ))}

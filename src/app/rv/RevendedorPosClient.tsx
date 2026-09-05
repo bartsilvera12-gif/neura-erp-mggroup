@@ -14,6 +14,8 @@ type Props = {
 };
 
 type SaleResult = {
+  /** Id de la venta registrada: con esto se abre e imprime su ticket. */
+  entrada_id?: string;
   numero_orden: number;
   cupones: { id: string; numero_cupon: string }[];
   monto_total: number;
@@ -192,14 +194,21 @@ export default function RevendedorPosClient(props: Props) {
           <p className="text-center text-[10px] text-slate-400 mt-3">¡Gracias por participar! 🍀</p>
         </div>
 
-        <div className="w-full max-w-[380px] mt-4 flex gap-2 print:hidden">
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="flex-1 bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-3 font-semibold"
-          >
-            🖨️ Imprimir
-          </button>
+        <div className="w-full max-w-[380px] mt-4 space-y-2 print:hidden">
+          {/*
+            Lleva a la pantalla de impresión, que arma el ticket con el formato y el ancho de
+            papel configurados. Es la misma pantalla que se usa para reimprimir: siempre lee la
+            venta ya registrada, así que nunca genera otro número.
+          */}
+          {result.entrada_id ? (
+            <a
+              href={`/ticket/${result.entrada_id}`}
+              className="block w-full rounded-xl bg-[#1e2a5a] py-4 text-center text-lg font-bold text-white"
+            >
+              🖨 IMPRIMIR TICKET
+            </a>
+          ) : null}
+          <div className="flex gap-2">
           <button
             type="button"
             onClick={nuevaVenta}
@@ -207,6 +216,7 @@ export default function RevendedorPosClient(props: Props) {
           >
             Nueva venta
           </button>
+          </div>
         </div>
 
         <style>{`@media print { body { background: #fff !important; } .print\\:hidden { display: none !important; } #rv-recibo { box-shadow: none !important; } }`}</style>
