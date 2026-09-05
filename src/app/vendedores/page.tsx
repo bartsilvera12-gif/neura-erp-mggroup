@@ -55,7 +55,7 @@ export default function VendedoresPage() {
   const [pin, setPin] = useState("");
 
   /** PIN recién generado. Se muestra una vez y no se puede volver a consultar. */
-  const [pinNuevo, setPinNuevo] = useState<{ nombre: string; pin: string } | null>(null);
+  const [pinNuevo, setPinNuevo] = useState<{ nombre: string; numero: number | null; pin: string } | null>(null);
   /** Vendedor cuyo PIN se está editando, y el valor tipeado. */
   const [editandoPin, setEditandoPin] = useState<string | null>(null);
   const [pinEditado, setPinEditado] = useState("");
@@ -101,7 +101,7 @@ export default function VendedoresPage() {
           ...(pin.trim() ? { pin: pin.trim() } : {}),
         }),
       });
-      setPinNuevo({ nombre: d.vendedor.nombre, pin: d.pin });
+      setPinNuevo({ nombre: d.vendedor.nombre, numero: d.vendedor.numero_vendedor, pin: d.pin });
       setNombre("");
       setCargo("");
       setTelefono("");
@@ -179,7 +179,7 @@ export default function VendedoresPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(pinElegido ? { pin: pinElegido } : { regenerar_pin: true }),
       });
-      setPinNuevo({ nombre: v.nombre, pin: d.pin });
+      setPinNuevo({ nombre: v.nombre, numero: v.numero_vendedor, pin: d.pin });
       setEditandoPin(null);
       setPinEditado("");
       await cargar();
@@ -206,14 +206,45 @@ export default function VendedoresPage() {
       {pinNuevo && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
           <p className="text-sm font-semibold text-amber-900">
-            PIN de {pinNuevo.nombre}
+            Datos de acceso de {pinNuevo.nombre}
           </p>
-          <p className="my-1 text-3xl font-bold tracking-[0.2em] tabular-nums text-amber-900">
-            {pinNuevo.pin}
-          </p>
+          {/*
+            El número va junto al PIN a propósito: para vender por WhatsApp el vendedor necesita
+            los dos, y separarlos obligaba a buscar el número en otro lado.
+          */}
+          <div className="my-1 flex flex-wrap items-end gap-x-6 gap-y-1">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                N.º de vendedor
+              </div>
+              <div className="text-3xl font-bold tabular-nums text-amber-900">
+                {pinNuevo.numero ?? "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                PIN
+              </div>
+              <div className="text-3xl font-bold tracking-[0.2em] tabular-nums text-amber-900">
+                {pinNuevo.pin}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              void copiar(
+                `Tus datos para vender por WhatsApp:\n\nNúmero de vendedor: ${pinNuevo.numero ?? "—"}\nPIN: ${pinNuevo.pin}\n\nEscribí *#VENTA* al número de la empresa para cargar una venta.`,
+                "credenciales"
+              )
+            }
+            className="mb-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-900"
+          >
+            {copiado === "credenciales" ? "¡Copiado!" : "Copiar mensaje para el vendedor"}
+          </button>
           <p className="text-xs text-amber-800">
-            Anotalo y pasáselo ahora. No se guarda en claro: no vas a poder volver a verlo, solo
-            generar uno nuevo.
+            Anotalo y pasáselo ahora. El PIN no se guarda en claro: no vas a poder volver a verlo,
+            solo generar uno nuevo.
           </p>
           <button
             type="button"

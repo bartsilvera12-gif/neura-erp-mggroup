@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 
 type Props = {
   revendedorNombre: string;
+  /** Correlativo por empresa; el vendedor lo necesita para el modo venta por WhatsApp. */
+  numeroVendedor?: number | null;
   sorteoNombre: string;
   precioPorBoleto: number;
   sorteoActivo: boolean;
@@ -230,7 +232,14 @@ export default function RevendedorPosClient(props: Props) {
       <header className="bg-slate-900 text-white px-5 py-4">
         <div className="text-sm font-semibold uppercase tracking-wide opacity-70">{props.sorteoNombre}</div>
         <div className="text-lg font-extrabold">Punto de venta</div>
-        <div className="text-[11px] opacity-70 mt-0.5">Vendedor: {props.revendedorNombre}</div>
+        {/*
+          El número va acá para que el vendedor lo tenga siempre a mano: es lo que le piden al
+          escribir #VENTA por WhatsApp, y antes dependía de que se lo recordara el administrador.
+        */}
+        <div className="text-[11px] opacity-70 mt-0.5">
+          {props.numeroVendedor != null ? `Vendedor N.º ${props.numeroVendedor} · ` : "Vendedor: "}
+          {props.revendedorNombre}
+        </div>
       </header>
 
       <div className="px-4 -mt-3">
