@@ -24,6 +24,18 @@ export function registrarImplementacionDeMedicion(i: MedicionImpl): void {
   impl = i;
 }
 
+/**
+ * ¿Estamos dentro del procesamiento de un webhook entrante?
+ *
+ * El contexto activo lo abre `medirWebhook`, así que existe solo mientras se atiende un
+ * mensaje del bot. Se usa además de para medir, para decidir el transporte de base: el camino
+ * directo a Postgres tiene un pool chico y se reserva para el bot, de modo que la bandeja o el
+ * CRM no puedan quitarle conexiones justo cuando un cliente está comprando.
+ */
+export function enProcesamientoDeWebhook(): boolean {
+  return impl?.activa() ?? false;
+}
+
 /** Envuelve una operacion y le suma su duracion a `etapa`. No-op si no hay medicion activa. */
 export async function medirEtapa<T>(etapa: string, fn: () => Promise<T>): Promise<T> {
   if (!impl?.activa()) return fn();
