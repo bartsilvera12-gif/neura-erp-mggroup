@@ -6,6 +6,7 @@ import { createFlowEngine } from "@/lib/chat/flow-engine-service";
 import { flowTrace } from "@/lib/chat/flow-trace-log";
 import { persistInboundChatMessageAndBump } from "@/lib/chat/incoming-message-service";
 import { fetchMedido } from "@/lib/chat/webhook-timing";
+import { procesarModoVentaVendedor } from "@/lib/chat/venta-vendedor-whatsapp";
 import { isSingleClientMode } from "@/lib/instance/single-client";
 import { assignConversation } from "@/lib/chat/assign-conversation-service";
 import { assignConversationPg } from "@/lib/chat/webhooks/assign-conversation-pg";
@@ -1676,6 +1677,32 @@ export async function processInboundWebhookValue(
             conversationId,
             err: e instanceof Error ? e.message : String(e),
           });
+        }
+      }
+
+      /**
+       * Modo venta del vendedor (#VENTA). Va ANTES del flujo del comprador: el vendedor escribe
+       * al mismo número corporativo, así que sin esto el bot le contestaría el menú del sorteo
+       * en medio de la carga de la venta.
+       */
+      if (message_type === "text" && content.trim()) {
+        try {
+          const modoVenta = await procesarModoVentaVendedor({
+            supabase,
+            empresaId,
+            conversationId,
+            texto: content,
+            contactId,
+            channelId,
+          });
+          if (modoVenta.manejado) {
+            console.info(logW, "venta_vendedor_manejado", { conversationId });
+            processed += 1;
+            continue;
+          }
+        } catch (e) {
+          /** Si el modo venta falla, el mensaje sigue al flujo normal en vez de perderse. */
+          console.error(logW, "venta_vendedor_error", e instanceof Error ? e.message : e);
         }
       }
 
