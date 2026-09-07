@@ -27,6 +27,21 @@ export const CAMPO_PRECARGA_ESTADO = "sorteo_datos_precarga";
  * en vez de saltearse otra vez y dejar al cliente girando en el mismo lugar.
  */
 export const CAMPO_PRECARGA_PENDIENTES = "sorteo_datos_precarga_pendientes";
+/**
+ * "si" cuando el comprador confirmó que sus datos siguen siendo esos.
+ *
+ * Mientras no confirme no se saltea ninguna pregunta. Si en vez de tocar el botón escribe
+ * algo, ese texto entra como respuesta a la pregunta que tocaba y el flujo sigue preguntando
+ * el resto: escribir vale como «los quiero cambiar», y nunca queda esperando un botón que la
+ * persona no va a tocar.
+ */
+export const CAMPO_PRECARGA_CONFIRMADA = "sorteo_datos_precarga_confirmada";
+
+/** Botones de la confirmación. No son opciones del flujo: los maneja el motor. */
+export const BOTONES_DATOS_GUARDADOS = {
+  confirmar: "dg_datos_ok",
+  cambiar: "dg_datos_cambiar",
+} as const;
 
 export type DatosGuardadosComprador = {
   nombre: string;
@@ -187,9 +202,9 @@ export function textoDatosReutilizados(datos: DatosGuardadosComprador): string {
   if (datos.documento) lineas.push(`🪪 ${datos.documento}`);
   if (datos.ciudad) lineas.push(`📍 ${datos.ciudad}`);
   return (
-    "Ya tenemos tus datos de tu compra anterior:\n\n" +
+    "Estos son tus datos de tu compra anterior:\n\n" +
     lineas.join("\n") +
-    "\n\nSeguimos con eso. Si algo cambió, avisanos y lo corregimos."
+    "\n\n¿Seguimos con estos datos?"
   );
 }
 

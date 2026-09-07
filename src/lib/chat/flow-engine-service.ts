@@ -85,6 +85,8 @@ import {
   resolveEffectiveNodeCodeForFlowCompleteness,
 } from "@/lib/sorteos/sorteo-flow-capture-order";
 import {
+  BOTONES_DATOS_GUARDADOS,
+  CAMPO_PRECARGA_CONFIRMADA,
   CAMPO_PRECARGA_ESTADO,
   CAMPO_PRECARGA_PENDIENTES,
   leerDatosGuardadosPorTelefono,
@@ -1768,7 +1770,44 @@ export function createFlowEngine(ctx: FlowEngineContext) {
    * Devuelve el mapa de datos del flujo con lo precargado adentro. Si algo falla, devuelve lo
    * que había: el flujo pregunta todo, como venía haciendo.
    */
+  /** La pregunta con los dos botones. Los maneja el motor, no son opciones del flujo. */
+  async function enviarConfirmacionDatosGuardados(input: {
+    state: ConversationFlowState;
+    ctxSend: FlowSendContext;
+    texto: string;
+  }): Promise<boolean> {
+    if (input.ctxSend.provider !== "meta") return false;
+    const botones = [
+      { id: BOTONES_DATOS_GUARDADOS.confirmar, title: "Sí, son correctos" },
+      { id: BOTONES_DATOS_GUARDADOS.cambiar, title: "Cargar otros datos" },
+    ];
+    const ib = await sendWhatsAppInteractiveButtons({
+      toDigits: input.ctxSend.toDigits,
+      phoneNumberId: input.ctxSend.phoneNumberId,
+      accessToken: input.ctxSend.token,
+      bodyText: input.texto,
+      buttons: botones,
+    });
+    if (!ib.ok) return false;
+    await persistOutgoingMessage({
+      conversation: input.state,
+      content: input.texto,
+      messageType: "interactive",
+      waMessageId: ib.waMessageId,
+      raw: ib.raw,
+      senderType: "system",
+      automationSource: "flow_engine",
+      neuraInteractive: {
+        kind: "buttons",
+        groupTitle: input.texto,
+        items: botones.map((b) => ({ id: b.id, title: b.title, payload: null })),
+      },
+    });
+    return true;
+  }
+
   async function precargarDatosGuardadosDelComprador(input: {
+    state: ConversationFlowState;
     empresaId: string;
     conversationId: string;
     flowCode: string;
@@ -1776,7 +1815,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     telefono: string;
     ctxSend: FlowSendContext;
     flowData: Record<string, string>;
-  }): Promise<Record<string, string>> {
+  }): Promise<{ flowData: Record<string, string>; preguntoAhora: boolean }> {
     const fd = { ...input.flowData };
     const guardar = (campo: string, valor: string) =>
       guardarCampoDeFlujo({
@@ -1798,25 +1837,25 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       const sorteoId = await getSorteoIdForChatFlow(supabase, input.empresaId, input.flowCode);
       if (!sorteoId) {
         await marcarHecha();
-        return fd;
+        return { flowData: fd, preguntoAhora: false };
       }
 
       const datos = await leerDatosGuardadosPorTelefono(input.empresaId, input.telefono);
       if (!datos) {
         await marcarHecha();
-        return fd;
+        return { flowData: fd, preguntoAhora: false };
       }
 
       const ctxGrafo = await loadFlowCaptureGraphContext(supabase, input.empresaId, input.flowCode);
       if (!ctxGrafo) {
         await marcarHecha();
-        return fd;
+        return { flowData: fd, preguntoAhora: false };
       }
 
       const plan = planificarPrecargaDeDatos(ctxGrafo, fd, datos);
       if (plan.pendientes.length === 0) {
         await marcarHecha();
-        return fd;
+        return { flowData: fd, preguntoAhora: false };
       }
 
       for (const [campo, valor] of Object.entries(plan.valores)) {
@@ -1828,15 +1867,35 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       fd[CAMPO_PRECARGA_PENDIENTES] = pendientes;
       await marcarHecha();
 
-      /** Se le dice al comprador qué datos se están reusando, para que pueda corregirlos. */
-      await flowSendText(input.ctxSend, textoDatosReutilizados(datos));
+      /*
+       * Se le muestran los datos y se le pregunta, con dos botones, si sigue con esos o quiere
+       * cargar otros. Hasta que conteste no se saltea ninguna pregunta.
+       *
+       * Si el canal no es de Meta no hay botones interactivos: ahí va el texto solo y el flujo
+       * pregunta todo, como antes. Prefiero eso a mostrar una pregunta que no se puede contestar.
+       */
+      const preguntado = await enviarConfirmacionDatosGuardados({
+        state: input.state,
+        ctxSend: input.ctxSend,
+        texto: textoDatosReutilizados(datos),
+      });
+      if (!preguntado) {
+        /*
+         * Sin botones no hay forma de contestar, así que ni se precarga: se borra la lista de
+         * pendientes y el flujo pregunta todo, como venía. Mejor eso que mostrar una pregunta
+         * que la persona no puede responder.
+         */
+        await guardar(CAMPO_PRECARGA_PENDIENTES, "");
+        fd[CAMPO_PRECARGA_PENDIENTES] = "";
+        return { flowData: fd, preguntoAhora: false };
+      }
 
       console.info("[sorteo-datos-guardados] precarga_aplicada", {
         conversation_id: input.conversationId,
         flow_session_id: input.flowSessionId,
         campos: plan.pendientes,
       });
-      return fd;
+      return { flowData: fd, preguntoAhora: true };
     } catch (e) {
       console.warn(
         "[sorteo-datos-guardados] precarga_fallida",
@@ -1847,7 +1906,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       } catch {
         /* Si ni la marca se puede escribir, el flujo sigue preguntando todo. */
       }
-      return fd;
+      return { flowData: fd, preguntoAhora: false };
     }
   }
 
@@ -1952,8 +2011,10 @@ export function createFlowEngine(ctx: FlowEngineContext) {
 
     if (esCapturaPersonal) {
       let fdPrecarga = hydFdPointer;
+      let preguntoAhora = false;
       if (String(fdPrecarga[CAMPO_PRECARGA_ESTADO] ?? "").trim() !== "hecha") {
-        fdPrecarga = await precargarDatosGuardadosDelComprador({
+        const pre = await precargarDatosGuardadosDelComprador({
+          state,
           empresaId: state.empresa_id,
           conversationId: state.id,
           flowCode: state.flow_code,
@@ -1962,11 +2023,28 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           ctxSend,
           flowData: fdPrecarga,
         });
+        fdPrecarga = pre.flowData;
+        preguntoAhora = pre.preguntoAhora;
       }
 
       const pendientes = leerPendientes(fdPrecarga);
+      const confirmada = String(fdPrecarga[CAMPO_PRECARGA_CONFIRMADA] ?? "").trim() === "si";
       const siguiente = (node.next_node_code ?? "").trim();
-      if (pendientes.includes(campoDelNodo) && siguiente) {
+
+      /*
+       * Recién se le mandaron los botones: no se manda además la pregunta del paso, para que
+       * no le lleguen las dos cosas juntas.
+       *
+       * La espera dura solo esta llamada, a propósito. Si la persona escribe en vez de tocar el
+       * botón, ese texto entra como respuesta a este paso y en el siguiente el flujo pregunta
+       * normalmente: escribir vale como «los quiero cambiar». Frenar mientras no conteste
+       * dejaría la conversación muerta esperando un botón que quizás nunca toque.
+       */
+      if (preguntoAhora) {
+        return { ok: true, nodeCode: state.flow_current_node };
+      }
+
+      if (confirmada && pendientes.includes(campoDelNodo) && siguiente) {
         await guardarCampoDeFlujo({
           empresaId: state.empresa_id,
           conversationId: state.id,
@@ -2443,6 +2521,59 @@ ${texto}` : prefijo;
         payload: { reason: "missing_flow_state", raw: params.rawPayload },
       });
       return { ok: true, status: "missing_flow_state" };
+    }
+
+    /*
+     * Confirmación de los datos guardados del comprador que vuelve. Va antes que todo: son
+     * botones del motor, no opciones del flujo, así que la búsqueda por `chat_flow_options` no
+     * los encontraría y el bot repetiría el paso.
+     */
+    if (
+      params.metaButtonId === BOTONES_DATOS_GUARDADOS.confirmar ||
+      params.metaButtonId === BOTONES_DATOS_GUARDADOS.cambiar
+    ) {
+      const sidDatos = state.active_flow_session_id?.trim() ?? "";
+      const confirma = params.metaButtonId === BOTONES_DATOS_GUARDADOS.confirmar;
+      if (sidDatos) {
+        await guardarCampoDeFlujo({
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code,
+          flowSessionId: sidDatos,
+          campo: CAMPO_PRECARGA_CONFIRMADA,
+          valor: confirma ? "si" : "no",
+        });
+        if (!confirma) {
+          /*
+           * Quiere cargar otros datos: se vacía la lista de pendientes para que no se saltee
+           * ninguna pregunta. Los valores precargados quedan escritos, pero cada respuesta
+           * nueva los pisa, que es justamente lo que la persona pidió.
+           */
+          await guardarCampoDeFlujo({
+            empresaId: state.empresa_id,
+            conversationId: state.id,
+            flowCode: state.flow_code,
+            flowSessionId: sidDatos,
+            campo: CAMPO_PRECARGA_PENDIENTES,
+            valor: "",
+          });
+        }
+      }
+      await insertFlowEvent({
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        nodeCode: state.flow_current_node,
+        flowSessionId: sidDatos || null,
+        eventType: "datos_guardados_respuesta",
+        metaButtonId: params.metaButtonId,
+        payload: { confirma },
+      });
+      const sigue = await sendCurrentFlowNode({ conversationId: state.id });
+      if (!sigue.ok) {
+        return { ok: false, status: "send_next_node_failed", error: sigue.error };
+      }
+      return { ok: true, status: confirma ? "datos_guardados_confirmados" : "datos_guardados_cambiar" };
     }
 
     const currentNodePre = await getNode(

@@ -8,6 +8,7 @@
  * Correr con: npx tsx --conditions=react-server scripts/qa-sorteo-datos-guardados.ts
  */
 import {
+  BOTONES_DATOS_GUARDADOS,
   leerPendientes,
   planificarPrecargaDeDatos,
   type DatosGuardadosComprador,
@@ -114,7 +115,7 @@ console.log("\nSin ciudad guardada no se inventa nada");
   chequear("y se sigue preguntando", !plan.pendientes.includes("ciudad"), plan.pendientes);
 }
 
-console.log("\nCada campo se saltea una sola vez (esto es lo que salva a «corregir datos»)");
+console.log("\nQué se pregunta según lo que conteste el comprador");
 {
   const ctx = grafo([
     { node_code: "nombre", save_as_field: "nombre_completo", next_node_code: "cedula" },
@@ -123,29 +124,55 @@ console.log("\nCada campo se saltea una sola vez (esto es lo que salva a «corre
   ]);
   const plan = planificarPrecargaDeDatos(ctx, {}, DATOS);
 
-  /** Misma cuenta que hace el motor: se saltea si el campo está en la lista, y sale de ella. */
-  let pendientes = plan.pendientes.slice();
-  const preguntados: string[] = [];
-  const recorrer = () => {
+  /**
+   * Misma cuenta que hace el motor: se saltea el paso solo si el comprador confirmó Y el campo
+   * sigue en la lista de pendientes; al saltearlo, sale de esa lista.
+   */
+  const recorrer = (estado: { pendientes: string[]; confirmada: boolean }) => {
+    const preguntados: string[] = [];
     for (const code of ctx.order) {
       const campo = ctx.nodesByCode.get(code)?.save_as_field ?? "";
-      if (pendientes.includes(campo)) {
-        pendientes = pendientes.filter((c) => c !== campo);
+      if (estado.confirmada && estado.pendientes.includes(campo)) {
+        estado.pendientes = estado.pendientes.filter((c) => c !== campo);
         continue;
       }
       preguntados.push(campo);
     }
+    return preguntados;
   };
 
-  recorrer();
-  chequear("la primera pasada no pregunta nada", preguntados.length === 0, preguntados);
-
-  /** «Corregir datos»: el flujo vuelve al principio de las capturas. */
-  recorrer();
+  const sinContestar = { pendientes: plan.pendientes.slice(), confirmada: false };
   chequear(
-    "al corregir vuelve a preguntar todo",
-    preguntados.join(",") === "nombre_completo,cedula,ciudad",
-    preguntados
+    "si no contesta, se le pregunta todo (nunca queda esperando un botón)",
+    recorrer(sinContestar).join(",") === "nombre_completo,cedula,ciudad"
+  );
+
+  const confirmo = { pendientes: plan.pendientes.slice(), confirmada: true };
+  chequear("si confirma, no se le pregunta nada", recorrer(confirmo).length === 0);
+  chequear(
+    "y si después vuelve atrás a corregir, se le pregunta todo",
+    recorrer(confirmo).join(",") === "nombre_completo,cedula,ciudad"
+  );
+
+  /** «Cargar otros datos» vacía la lista de pendientes. */
+  const pidioCambiar = { pendientes: [] as string[], confirmada: false };
+  chequear(
+    "si pide cargar otros, se le pregunta todo",
+    recorrer(pidioCambiar).join(",") === "nombre_completo,cedula,ciudad"
+  );
+}
+
+console.log("\nLos botones de la confirmación");
+{
+  chequear(
+    "tienen ids distintos",
+    BOTONES_DATOS_GUARDADOS.confirmar !== BOTONES_DATOS_GUARDADOS.cambiar
+  );
+  /** WhatsApp corta los ids de botón en 256 caracteres. */
+  chequear(
+    "los ids entran en lo que acepta WhatsApp",
+    BOTONES_DATOS_GUARDADOS.confirmar.length <= 256 &&
+      BOTONES_DATOS_GUARDADOS.cambiar.length <= 256
   );
 }
 
