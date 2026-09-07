@@ -310,7 +310,6 @@ export default function RevendedorPosClient(props: Props) {
           <input
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
-            placeholder="Ej: Juan Pérez"
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
           />
         </Field>
