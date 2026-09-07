@@ -4179,17 +4179,51 @@ ${texto}` : prefijo;
     if (pipeline.kind === "resolved") {
       const sendCtxVal = await getConversationSendContext(state.id);
       if (pipeline.sendText?.trim()) {
-        const st = await flowSendText(sendCtxVal, pipeline.sendText.trim());
-        if (st.ok) {
-          await persistOutgoingMessage({
-            conversation: state,
-            content: pipeline.sendText.trim(),
-            messageType: "text",
-            waMessageId: st.waMessageId,
-            raw: st.raw,
-            senderType: "system",
-            automationSource: "flow_engine",
+        const textoPipeline = pipeline.sendText.trim();
+        /**
+         * El cliente recibió este aviso dos veces (7-9-2026, comprobante en PDF a revisión
+         * manual). Los eventos muestran UN solo `image_processing_claimed` y UN solo
+         * `image_received`, o sea que Meta no reintentó y la reserva funcionó; el código tiene
+         * un único emisor y ningún reintento. No pude ubicar el origen leyendo el código, así
+         * que se corta en el punto donde se nota: no se repite el mismo aviso automático a la
+         * misma conversación dentro del minuto.
+         *
+         * Ante un fallo de la consulta se envía igual: es preferible repetido a mudo.
+         */
+        let yaEnviado = false;
+        try {
+          const desde = new Date(Date.now() - 60_000).toISOString();
+          const { data: repetidos } = await supabase
+            .from("chat_messages")
+            .select("id")
+            .eq("conversation_id", state.id)
+            .eq("from_me", true)
+            .eq("content", textoPipeline)
+            .gte("created_at", desde)
+            .limit(1);
+          yaEnviado = Boolean(repetidos?.length);
+        } catch {
+          yaEnviado = false;
+        }
+
+        if (yaEnviado) {
+          console.warn("[comprobante]", "aviso_repetido_evitado", {
+            conversationId: state.id,
+            preview: textoPipeline.slice(0, 60),
           });
+        } else {
+          const st = await flowSendText(sendCtxVal, textoPipeline);
+          if (st.ok) {
+            await persistOutgoingMessage({
+              conversation: state,
+              content: textoPipeline,
+              messageType: "text",
+              waMessageId: st.waMessageId,
+              raw: st.raw,
+              senderType: "system",
+              automationSource: "flow_engine",
+            });
+          }
         }
       }
       if (pipeline.humanTakeover) {
