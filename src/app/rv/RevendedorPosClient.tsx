@@ -50,8 +50,6 @@ export default function RevendedorPosClient(props: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<SaleResult | null>(null);
-  const [restante, setRestante] = useState<number | null>(props.cupoRestante);
-  const [saldo, setSaldo] = useState<number>(props.saldoARendir);
   const [buscando, setBuscando] = useState(false);
   const [avisoBusqueda, setAvisoBusqueda] = useState<string | null>(null);
 
@@ -139,10 +137,6 @@ export default function RevendedorPosClient(props: Props) {
         throw new Error(json.error || "No se pudo registrar la venta.");
       }
       setResult(json.data);
-      if (props.cupoBoletos != null) {
-        setRestante((r) => (r == null ? null : Math.max(0, r - json.data!.cantidad)));
-      }
-      if (pagoMetodo === "efectivo") setSaldo((s) => s + (json.data!.monto_total || 0));
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Error al registrar la venta.");
     } finally {
@@ -243,19 +237,8 @@ export default function RevendedorPosClient(props: Props) {
       </header>
 
       <div className="px-4 -mt-3">
-        <div className="bg-white rounded-2xl shadow-sm p-3 flex items-center justify-around text-center">
-          <div>
-            <div className="text-[10px] uppercase text-slate-400">Cupo restante</div>
-            <div className="text-sm font-bold text-slate-800">
-              {restante == null ? "Ilimitado" : restante}
-            </div>
-          </div>
-          <div className="w-px h-8 bg-slate-100" />
-          <div>
-            <div className="text-[10px] uppercase text-slate-400">A rendir</div>
-            <div className="text-sm font-bold text-slate-800">{gs(saldo)}</div>
-          </div>
-          <div className="w-px h-8 bg-slate-100" />
+        {/* Solo el precio: el cupo y el saldo a rendir son datos de control, no de venta. */}
+        <div className="bg-white rounded-2xl shadow-sm p-3 flex items-center justify-center text-center">
           <div>
             <div className="text-[10px] uppercase text-slate-400">Precio</div>
             <div className="text-sm font-bold text-slate-800">{gs(props.precioPorBoleto)}</div>
