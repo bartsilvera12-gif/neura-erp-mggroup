@@ -10,6 +10,10 @@ import {
   leerConfigTicket,
   leerDatosTicket,
 } from "@/lib/sorteos/ticket-impresion-pg";
+import {
+  buildSorteoTicketQrPayload,
+  renderSorteoTicketQrDataUrl,
+} from "@/lib/sorteos/sorteo-ticket-qr";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +71,31 @@ export async function GET(
       return NextResponse.json(errorResponse("No encontramos esa venta."), { status: 404 });
     }
 
-    return NextResponse.json(successResponse({ cfg, datos }));
+    /*
+     * Un QR por número, con el mismo contenido que el del comprobante de WhatsApp: en la puerta
+     * del sorteo se escanea el boleto de papel o la imagen del celular y tiene que leerse lo
+     * mismo. Se arma acá y no en el navegador porque el payload lo define el servidor.
+     *
+     * Si el render falla, el ticket sale sin QR. Vale igual: lleva el número impreso.
+     */
+    const qrPorCupon: Record<string, string> = {};
+    await Promise.all(
+      datos.cupones.map(async (numero) => {
+        const payload = buildSorteoTicketQrPayload({
+          numeroOrden: datos.numero_orden,
+          cupones: [numero],
+          clienteNombre: datos.cliente,
+          documento: datos.documento,
+          telefono: datos.telefono,
+          ciudad: datos.ciudad,
+          sorteoNombre: datos.sorteo_nombre,
+        });
+        const url = await renderSorteoTicketQrDataUrl(payload, 320);
+        if (url) qrPorCupon[numero] = url;
+      })
+    );
+
+    return NextResponse.json(successResponse({ cfg, datos: { ...datos, qr_por_cupon: qrPorCupon } }));
   } catch (e) {
     console.error("[api/sorteos/ticket-impresion]", e instanceof Error ? e.message : e);
     return NextResponse.json(errorResponse("No se pudo cargar el ticket."), { status: 500 });

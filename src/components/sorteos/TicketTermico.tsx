@@ -3,7 +3,7 @@
 import type { ConfigTicket, DatosTicket } from "@/lib/sorteos/ticket-impresion-tipos";
 
 const PYG = new Intl.NumberFormat("es-PY");
-const gs = (n: number) => "Gs. " + PYG.format(Math.round(n || 0));
+const gs = (n: number) => PYG.format(Math.round(n || 0)) + " Gs.";
 
 function fechaHora(iso: string | null): string {
   if (!iso) return "";
@@ -11,17 +11,13 @@ function fechaHora(iso: string | null): string {
   return d.toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" });
 }
 
-function Fila({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex justify-between gap-2">
-      <span>{k}</span>
-      <span className="text-right">{v}</span>
-    </div>
-  );
-}
-
 /**
- * Un ticket para impresora térmica.
+ * Un boleto para impresora térmica.
+ *
+ * El formato es el de la boleta que se manda por WhatsApp —logo, nombre del comprador,
+ * documento y celular en una línea, edición, número y ciudad— para que la boleta impresa y la
+ * digital se lean igual. Antes era una lista de «campo: valor» con el total y la forma de
+ * pago, que es un comprobante de caja, no un boleto de sorteo.
  *
  * Se imprime desde el navegador con `@page size: <ancho>mm auto`, que es lo que hace que la
  * impresora corte al largo del contenido en vez de tirar una hoja entera. Todo va en
@@ -41,106 +37,140 @@ export default function TicketTermico({
   /**
    * Un boleto suelto de la compra.
    *
-   * Cuando alguien compra tres números, se imprimen tres tickets de un número cada uno: el
+   * Cuando alguien compra tres números, se imprimen tres boletos de un número cada uno: el
    * boleto es lo que la persona guarda o regala, y dos números en la misma hoja no se pueden
-   * repartir. Sin esta prop el ticket sale con todos los números juntos, que es lo que sirve
-   * para la vista previa y para una compra de un solo boleto.
+   * repartir. Sin esta prop salen todos los números juntos, que es lo que sirve para la vista
+   * previa de la configuración.
    */
   boleto?: { n: number; de: number; numero: string; monto: number };
 }) {
   const anchoMm = cfg.ancho_mm;
   /** Margen de 3 mm a cada lado: el área imprimible es menor que el papel. */
   const contenidoMm = anchoMm - 6;
+  const angosto = anchoMm === 58;
+
   const numeros = boleto ? [boleto.numero] : datos.cupones;
-  const monto = boleto ? boleto.monto : datos.monto;
+  const numeroPrincipal = numeros[0] ?? "";
+  const montoBoleto = boleto ? boleto.monto : datos.monto;
+  /** Precio de un boleto: es lo que dice la edición, no lo que pagó por toda la compra. */
+  const precioUnitario =
+    datos.cantidad > 0 ? Math.round(datos.monto / datos.cantidad) : datos.monto;
+  const qr = numeroPrincipal ? datos.qr_por_cupon?.[numeroPrincipal] : undefined;
+
+  const contacto = [
+    datos.documento ? `CI: ${datos.documento}` : "",
+    cfg.mostrar_telefono && datos.telefono ? `Cel: ${datos.telefono}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  const edicion = [datos.sorteo_nombre, precioUnitario > 0 ? `A: ${gs(precioUnitario)}` : ""]
+    .filter(Boolean)
+    .join(" ");
+
+  const logo = cfg.logo_url ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={cfg.logo_url}
+      alt=""
+      className="block"
+      style={{ maxWidth: "100%", maxHeight: angosto ? "12mm" : "14mm", objectFit: "contain" }}
+    />
+  ) : (
+    <div className="font-bold uppercase leading-tight">{cfg.negocio_nombre || ""}</div>
+  );
+
+  const qrImg = qr ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={qr}
+      alt=""
+      className="block"
+      style={{ width: angosto ? "22mm" : "20mm", height: angosto ? "22mm" : "20mm" }}
+    />
+  ) : null;
 
   return (
     <div
       className="ticket-termico mx-auto bg-white font-mono text-black"
-      style={{ width: `${contenidoMm}mm`, fontSize: anchoMm === 58 ? "10px" : "11px" }}
+      style={{ width: `${contenidoMm}mm`, fontSize: angosto ? "10px" : "11px" }}
     >
-      {cfg.logo_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={cfg.logo_url}
-          alt=""
-          className="mx-auto mb-1 block"
-          style={{ maxWidth: "100%", maxHeight: "18mm", objectFit: "contain" }}
-        />
-      ) : null}
+      {/*
+        En 80 mm entra el logo a la izquierda y el QR a la derecha, como la boleta impresa desde
+        la computadora. En 58 mm no entran los dos al lado: el logo va arriba y el QR abajo,
+        igual que en la boleta que se manda por WhatsApp.
+      */}
+      {angosto ? (
+        (cfg.logo_url || cfg.negocio_nombre) && (
+          <div className="mb-1 flex justify-center">{logo}</div>
+        )
+      ) : (
+        <div className="mb-1 flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">{logo}</div>
+          {qrImg}
+        </div>
+      )}
 
-      <div className="text-center font-bold uppercase leading-tight">
-        {cfg.negocio_nombre || datos.sorteo_nombre || "Comprobante"}
-      </div>
       {cfg.encabezado && (
         <div className="whitespace-pre-line text-center leading-tight">{cfg.encabezado}</div>
       )}
 
-      <div className="my-1 border-t border-dashed border-black" />
-
-      <div className="text-center font-bold leading-tight">
-        TICKET N.º {datos.numero_orden ?? "—"}
-      </div>
-      {boleto && boleto.de > 1 && (
-        <div className="text-center font-bold leading-tight">
-          Boleto {boleto.n} de {boleto.de}
-        </div>
-      )}
-      <div className="text-center leading-tight">{fechaHora(datos.fecha)}</div>
-      {cfg.mostrar_vendedor && datos.vendedor_numero != null && (
-        <div className="text-center leading-tight">
-          Vendedor N.º {datos.vendedor_numero}
-          {datos.vendedor_nombre ? ` · ${datos.vendedor_nombre}` : ""}
-        </div>
-      )}
-
-      <div className="my-1 border-t border-dashed border-black" />
-
-      <div className="space-y-0.5 leading-tight">
-        <Fila k="Cliente" v={datos.cliente || "—"} />
-        {datos.documento && <Fila k="Doc." v={datos.documento} />}
-        {cfg.mostrar_telefono && datos.telefono && <Fila k="Tel." v={datos.telefono} />}
-        {datos.ciudad && <Fila k="Ciudad" v={datos.ciudad} />}
-        {datos.sorteo_nombre && <Fila k="Sorteo" v={datos.sorteo_nombre} />}
-        {!boleto && <Fila k="Cantidad" v={`${datos.cantidad}`} />}
-        {datos.pago_metodo && <Fila k="Pago" v={datos.pago_metodo} />}
+      <div className="text-center font-bold leading-tight" style={{ fontSize: "1.3em" }}>
+        {datos.cliente || "—"}
       </div>
 
-      {numeros.length > 0 && (
-        <>
-          <div className="my-1 border-t border-dashed border-black" />
-          <div className="leading-tight">
-            <div className="font-bold">{numeros.length === 1 ? "Número" : "Números"}</div>
-            <div className="break-words font-bold" style={{ fontSize: boleto ? "1.6em" : undefined }}>
-              {numeros.join("  ")}
-            </div>
+      {contacto && <div className="text-center leading-tight">{contacto}</div>}
+
+      <div className="mt-1 break-words font-bold leading-tight">
+        EDICIÓN: {edicion.toUpperCase() || "—"}
+      </div>
+
+      <div className="font-bold leading-tight" style={{ fontSize: "1.6em" }}>
+        NRO: {numeros.join("  ") || "—"}
+      </div>
+
+      {/*
+        La ciudad va donde la boleta tenía la línea punteada. Cuando no hay ciudad se deja la
+        línea: sin nada, el número y el pie quedan pegados en un solo bloque.
+      */}
+      {datos.ciudad ? (
+        <div className="font-bold leading-tight">CIUDAD: {datos.ciudad.toUpperCase()}</div>
+      ) : (
+        <div className="my-1 border-t border-dashed border-black" />
+      )}
+
+      {angosto && qrImg && <div className="mt-1 flex justify-center">{qrImg}</div>}
+
+      {/*
+        Datos de control, chicos y al final: el boleto es del comprador, pero el vendedor
+        necesita poder atar el papel a la venta cuando rinde la caja.
+      */}
+      <div className="mt-1 leading-tight">
+        <div>
+          N.º {datos.numero_orden ?? "—"} · {fechaHora(datos.fecha)}
+          {boleto && boleto.de > 1 ? ` · Boleto ${boleto.n}/${boleto.de}` : ""}
+        </div>
+        {cfg.mostrar_vendedor && datos.vendedor_numero != null && (
+          <div>
+            Vendedor N.º {datos.vendedor_numero}
+            {datos.vendedor_nombre ? ` · ${datos.vendedor_nombre}` : ""}
           </div>
-        </>
-      )}
-
-      <div className="my-1 border-t border-dashed border-black" />
-
-      <div className="flex justify-between font-bold" style={{ fontSize: "1.25em" }}>
-        <span>TOTAL</span>
-        <span>{gs(monto)}</span>
+        )}
+        {boleto && boleto.de > 1 ? (
+          <div>
+            {gs(montoBoleto)} · compra de {boleto.de} boletos {gs(datos.monto)}
+          </div>
+        ) : (
+          <div>{gs(montoBoleto)}</div>
+        )}
       </div>
-
-      {/* La compra entera, para poder atar los boletos sueltos a la venta que los generó. */}
-      {boleto && boleto.de > 1 && (
-        <div className="leading-tight">
-          Compra de {boleto.de} boletos · {gs(datos.monto)}
-        </div>
-      )}
 
       {cfg.pie && (
-        <>
-          <div className="my-1 border-t border-dashed border-black" />
-          <div className="whitespace-pre-line text-center leading-tight">{cfg.pie}</div>
-        </>
+        <div className="mt-1 whitespace-pre-line text-center leading-tight">{cfg.pie}</div>
       )}
 
       {copia && copia.de > 1 && (
-        <div className="mt-1 text-center leading-tight">
+        <div className="text-center leading-tight">
           Copia {copia.n} de {copia.de}
         </div>
       )}

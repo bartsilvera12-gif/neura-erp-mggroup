@@ -42,4 +42,12 @@ export type DatosTicket = {
   sorteo_nombre: string;
   vendedor_nombre: string | null;
   vendedor_numero: number | null;
+  /**
+   * QR ya renderizado por número de cupón (`numero_cupon` → data URL PNG).
+   *
+   * Se arma en el servidor, con el mismo contenido que el QR del comprobante que se manda por
+   * WhatsApp, para que los dos digan lo mismo. Si falta, el ticket se imprime sin QR antes que
+   * fallar: la boleta con el número impreso ya vale.
+   */
+  qr_por_cupon?: Record<string, string>;
 };
