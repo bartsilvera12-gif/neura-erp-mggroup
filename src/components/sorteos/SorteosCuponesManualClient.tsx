@@ -27,6 +27,7 @@ export default function SorteosCuponesManualClient() {
     apellido: "",
     cedula: "",
     telefono: "",
+    ciudad: "",
     cantidad_boletos: "1",
     monto_total: "",
     observacion_interna: "",
@@ -135,6 +136,7 @@ export default function SorteosCuponesManualClient() {
           apellido: form.apellido.trim(),
           cedula: form.cedula.trim(),
           telefono: form.telefono.trim(),
+          ciudad: form.ciudad.trim(),
           cantidad_boletos: cantidad,
           monto_total: monto,
           observacion_interna: form.observacion_interna.trim() || null,
@@ -175,6 +177,7 @@ export default function SorteosCuponesManualClient() {
         apellido: "",
         cedula: "",
         telefono: "",
+        ciudad: "",
         cantidad_boletos: "1",
         monto_total: "",
         observacion_interna: "",
@@ -302,6 +305,18 @@ export default function SorteosCuponesManualClient() {
                   placeholder="Ej. 0981123456"
                   className="border border-slate-300 rounded px-2 py-2 text-sm font-mono"
                   autoComplete="tel"
+                />
+              </label>
+
+              {/* Va impresa en el ticket y queda en la ficha del cliente. */}
+              <label className="flex flex-col gap-1 text-xs text-slate-600">
+                Ciudad
+                <input
+                  name="ciudad"
+                  value={form.ciudad}
+                  onChange={onField}
+                  className="border border-slate-300 rounded px-2 py-2 text-sm"
+                  autoComplete="address-level2"
                 />
               </label>
 

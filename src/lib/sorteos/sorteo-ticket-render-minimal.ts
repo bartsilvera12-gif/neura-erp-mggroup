@@ -52,6 +52,7 @@ export function buildSorteoTicketMinimalSvg(input: SorteoTicketRenderInput): str
   const showOrd = cfg.showNumeroOrden !== false;
   const showCup = cfg.showCupones !== false;
   const showSorteoNom = cfg.showSorteoNombre !== false;
+  const showCiudad = cfg.showCiudad !== false;
 
   const innerW = WA - PAD * 2;
   const leftX = PAD;
@@ -113,7 +114,18 @@ export function buildSorteoTicketMinimalSvg(input: SorteoTicketRenderInput): str
   if (showTel && input.telefono?.trim()) contacto.push(`TEL: ${input.telefono.trim()}`);
   if (contacto.length > 0) drawLine(contacto.join(" | "));
 
-  drawSeparator();
+  /*
+   * La ciudad ocupa el lugar de la linea separadora: es lo que pidio el cliente y lo que
+   * conviene en una boleta angosta, donde cada renglon que se agrega empuja el QR hacia abajo.
+   * Cuando no hay ciudad se deja la separacion, porque si no los datos del comprador y los de
+   * la edicion quedan pegados en un solo bloque.
+   */
+  const ciudadTexto = showCiudad ? (input.ciudad ?? "").trim() : "";
+  if (ciudadTexto) {
+    drawLine(`CIUDAD: ${ciudadTexto.toUpperCase()}`);
+  } else {
+    drawSeparator();
+  }
 
   if (showSorteoNom && input.sorteoNombre?.trim()) {
     /** Precio opcional al lado de la edición (ej. "· 10.000 GS"); config-driven, solo si está seteado. */

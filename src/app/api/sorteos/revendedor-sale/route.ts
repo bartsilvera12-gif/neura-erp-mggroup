@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
     const nombre = typeof body.nombre === "string" ? body.nombre.trim() : "";
     const documento = typeof body.documento === "string" ? body.documento.trim() : "";
     const telefono = typeof body.telefono === "string" ? body.telefono.trim() : "";
+    const ciudad = typeof body.ciudad === "string" ? body.ciudad.trim() : "";
     const idem = typeof body.idempotency_key === "string" ? body.idempotency_key.trim() : "";
     const pagoMetodo: "efectivo" | "transferencia" =
       body.pago_metodo === "transferencia" ? "transferencia" : "efectivo";
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
       apellido: "",
       cedula: documento,
       telefono,
+      ciudad,
       cantidadBoletos: qty,
       montoTotal: monto,
       revendedorId: ctx.revendedorId,

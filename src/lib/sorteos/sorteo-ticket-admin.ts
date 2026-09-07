@@ -65,17 +65,40 @@ export async function flowDataStubFromEntrada(
   sb: AppSupabaseClient,
   entradaId: string
 ): Promise<Record<string, string>> {
-  const { data: ent } = await sb
+  const CAMPOS = "nombre_participante, documento, whatsapp_numero";
+  /*
+   * Se pide `ciudad` y, si la columna todavia no existe, se repite la consulta sin ella. Es una
+   * venta ya registrada: preferimos un comprobante sin ciudad antes que uno sin ningun dato,
+   * que es lo que saldria si dejaramos fallar la consulta entera.
+   */
+  let ent: unknown = null;
+  const conCiudad = await sb
     .from("sorteo_entradas")
-    .select("nombre_participante, documento, whatsapp_numero")
+    .select(`${CAMPOS}, ciudad`)
     .eq("id", entradaId)
     .maybeSingle();
-  const r = ent as { nombre_participante?: string; documento?: string | null; whatsapp_numero?: string } | null;
+  if (conCiudad.error) {
+    const sinCiudad = await sb
+      .from("sorteo_entradas")
+      .select(CAMPOS)
+      .eq("id", entradaId)
+      .maybeSingle();
+    ent = sinCiudad.data;
+  } else {
+    ent = conCiudad.data;
+  }
+  const r = ent as {
+    nombre_participante?: string;
+    documento?: string | null;
+    whatsapp_numero?: string;
+    ciudad?: string | null;
+  } | null;
   return {
     nombre_completo: (r?.nombre_participante ?? "").trim(),
     documento: (r?.documento ?? "").trim(),
     telefono: (r?.whatsapp_numero ?? "").trim(),
     celular: (r?.whatsapp_numero ?? "").trim(),
+    ciudad: (r?.ciudad ?? "").trim(),
   };
 }
 

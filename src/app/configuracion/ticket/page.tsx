@@ -20,6 +20,7 @@ const EJEMPLO: DatosTicket = {
   cliente: "Jazmín Quintana",
   documento: "5754288",
   telefono: "0984511496",
+  ciudad: "Ciudad del Este",
   cantidad: 2,
   monto: 20000,
   pago_metodo: "efectivo",

@@ -34,6 +34,7 @@ export type DatosTicket = {
   cliente: string;
   documento: string | null;
   telefono: string | null;
+  ciudad: string | null;
   cantidad: number;
   monto: number;
   pago_metodo: string | null;

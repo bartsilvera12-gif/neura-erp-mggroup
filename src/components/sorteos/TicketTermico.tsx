@@ -83,6 +83,7 @@ export default function TicketTermico({
         <Fila k="Cliente" v={datos.cliente || "—"} />
         {datos.documento && <Fila k="Doc." v={datos.documento} />}
         {cfg.mostrar_telefono && datos.telefono && <Fila k="Tel." v={datos.telefono} />}
+        {datos.ciudad && <Fila k="Ciudad" v={datos.ciudad} />}
         {datos.sorteo_nombre && <Fila k="Sorteo" v={datos.sorteo_nombre} />}
         <Fila k="Cantidad" v={`${datos.cantidad}`} />
         {datos.pago_metodo && <Fila k="Pago" v={datos.pago_metodo} />}

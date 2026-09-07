@@ -97,17 +97,40 @@ export async function leerDatosTicket(
   const tCup = quoteSchemaTable(schema, "sorteo_cupones");
   const tSor = quoteSchemaTable(schema, "sorteos");
   const tRev = quoteSchemaTable(schema, "sorteo_revendedores");
+  const tCli = quoteSchemaTable(schema, "clientes");
+  const tFd = quoteSchemaTable(schema, "chat_flow_data");
 
+  /*
+   * La ciudad sale de la venta; si es una venta anterior a esa columna, del dato que la persona
+   * dio por WhatsApp y, en ultimo lugar, de su ficha de cliente. Asi una boleta vieja tambien
+   * sale con ciudad en vez de en blanco.
+   *
+   * `to_jsonb(e) ->> 'ciudad'` en vez de `e.ciudad`: la consulta sigue funcionando aunque
+   * todavia no se haya corrido la migracion que agrega la columna.
+   */
   const r = await pool.query(
     `SELECT e.id::text AS entrada_id, e.numero_orden, e.created_at AS fecha,
             e.nombre_participante AS cliente, e.documento, e.whatsapp_numero AS telefono,
             e.cantidad_boletos AS cantidad, e.monto_total AS monto, e.pago_metodo,
             s.nombre AS sorteo_nombre,
             rv.nombre AS vendedor_nombre, rv.numero_vendedor AS vendedor_numero,
+            COALESCE(
+              NULLIF(TRIM(to_jsonb(e) ->> 'ciudad'), ''),
+              (SELECT NULLIF(TRIM(fd.field_value), '')
+                 FROM ${tFd} fd
+                WHERE fd.conversation_id = e.chat_conversation_id
+                  AND fd.empresa_id = e.empresa_id
+                  AND fd.field_name IN ('ciudad', 'localidad', 'ubicacion')
+                  AND NULLIF(TRIM(fd.field_value), '') IS NOT NULL
+                ORDER BY fd.created_at DESC
+                LIMIT 1),
+              NULLIF(TRIM(cl.ciudad), '')
+            ) AS ciudad,
             COALESCE(c.cupones, ARRAY[]::text[]) AS cupones
        FROM ${tEnt} e
        LEFT JOIN ${tSor} s  ON s.id = e.sorteo_id
        LEFT JOIN ${tRev} rv ON rv.id = e.revendedor_id
+       LEFT JOIN ${tCli} cl ON cl.id = e.cliente_id AND cl.empresa_id = e.empresa_id
        LEFT JOIN LATERAL (
          SELECT array_agg(cu.numero_cupon ORDER BY cu.numero_cupon) AS cupones
            FROM ${tCup} cu WHERE cu.entrada_id = e.id
@@ -132,6 +155,7 @@ export async function leerDatosTicket(
     cliente: String(row.cliente ?? "").trim(),
     documento: row.documento == null ? null : String(row.documento),
     telefono: row.telefono == null ? null : String(row.telefono),
+    ciudad: row.ciudad == null ? null : String(row.ciudad).trim() || null,
     cantidad: Number(row.cantidad ?? 0),
     monto: Number(row.monto ?? 0),
     pago_metodo: row.pago_metodo == null ? null : String(row.pago_metodo),

@@ -37,7 +37,7 @@ const MAX_INTENTOS_PIN = 3;
 /** Tope por venta, igual que el flujo del comprador. */
 const MAX_BOLETAS = 20;
 
-type Paso = "id" | "pin" | "telefono" | "nombre" | "cedula" | "cantidad";
+type Paso = "id" | "pin" | "telefono" | "nombre" | "cedula" | "ciudad" | "cantidad";
 
 type Sesion = {
   conversation_id: string;
@@ -395,7 +395,23 @@ export async function procesarModoVentaVendedor(input: {
 
     case "cedula": {
       /** Sin validar formato: hay cédulas con guiones y letras. */
-      await guardarSesion({ ...sesion, paso: "cantidad", datos: { ...sesion.datos, cedula: t } });
+      await guardarSesion({ ...sesion, paso: "ciudad", datos: { ...sesion.datos, cedula: t } });
+      await enviar(supabase, empresaId, conversationId, "🏙 Ingresá la *ciudad* del cliente:");
+      return { manejado: true };
+    }
+
+    case "ciudad": {
+      /**
+       * La ciudad sale impresa en el ticket y queda en la ficha del cliente, igual que en el
+       * punto de venta. Se puede saltear con un guion cuando el vendedor está apurado y no
+       * tiene el dato a mano: mejor eso a que abandone la carga a mitad de camino.
+       */
+      const ciudadCliente = t === "-" || t === "." ? "" : t.trim();
+      await guardarSesion({
+        ...sesion,
+        paso: "cantidad",
+        datos: { ...sesion.datos, ciudad: ciudadCliente },
+      });
       await enviar(
         supabase,
         empresaId,
@@ -435,6 +451,7 @@ export async function procesarModoVentaVendedor(input: {
         apellido: "",
         cedula: sesion.datos.cedula ?? "",
         telefono: sesion.datos.telefono ?? "",
+        ciudad: sesion.datos.ciudad ?? "",
         cantidadBoletos: cant,
         montoTotal: monto,
         revendedorId: sesion.revendedor_id,
@@ -462,6 +479,7 @@ export async function procesarModoVentaVendedor(input: {
           `*Cliente:* ${sesion.datos.nombre ?? "—"}\n` +
           `*Cédula:* ${sesion.datos.cedula ?? "—"}\n` +
           `*Teléfono:* ${sesion.datos.telefono ?? "—"}\n` +
+          (sesion.datos.ciudad ? `*Ciudad:* ${sesion.datos.ciudad}\n` : "") +
           `*Boletas:* ${cant}\n` +
           `*Números:* ${cupones || "—"}\n` +
           `*Total:* ${gs(creada.montoTotal ?? monto)}\n` +

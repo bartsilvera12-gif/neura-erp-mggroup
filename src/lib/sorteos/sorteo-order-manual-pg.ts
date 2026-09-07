@@ -41,6 +41,8 @@ export type SorteoManualCashInput = {
   apellido: string;
   cedula: string;
   telefono: string;
+  /** Ciudad del comprador. Va en el ticket impreso y queda en la ficha del cliente. */
+  ciudad?: string | null;
   cantidadBoletos: number;
   /** Monto total informado por el operador (>= 0). */
   montoTotal: number;
@@ -252,15 +254,28 @@ export async function createSorteoManualCashSaleViaDirectPostgres(
        LIMIT 1`,
       [input.empresaId, ce || null, wa]
     );
+    const ciudad = (input.ciudad ?? "").trim();
+
     if (findCli.rows[0]) {
       clienteId = findCli.rows[0].id;
+      /*
+       * Completa la ciudad si la ficha no la tenia, pero nunca la pisa: el dato que ya estaba
+       * puede haberlo cargado alguien con mas informacion que la que trae esta venta.
+       */
+      if (ciudad && cliCols.has("ciudad")) {
+        await client.query(
+          `UPDATE ${qsch}.clientes SET ciudad = $1
+            WHERE id = $2 AND empresa_id = $3 AND NULLIF(TRIM(COALESCE(ciudad, '')), '') IS NULL`,
+          [ciudad, clienteId, input.empresaId]
+        );
+      }
     } else {
       const insCli = await client.query<{ id: string }>(
         `INSERT INTO ${qsch}.clientes (
            empresa_id, tipo_cliente, nombre_contacto, nombre, documento, telefono, ciudad, origen
-         ) VALUES ($1, 'persona', $2, $2, $3, $4, NULL, 'SORTEO')
+         ) VALUES ($1, 'persona', $2, $2, $3, $4, $5, 'SORTEO')
          RETURNING id`,
-        [input.empresaId, nombreCompleto, ce || null, wa]
+        [input.empresaId, nombreCompleto, ce || null, wa, ciudad || null]
       );
       clienteId = insCli.rows[0]?.id ?? null;
     }
@@ -317,6 +332,13 @@ export async function createSorteoManualCashSaleViaDirectPostgres(
     }
     if (entCols.has("venta_canal")) {
       rowEnt.venta_canal = input.ventaCanal?.trim() || "local";
+    }
+    /*
+     * La ciudad va tambien en la venta, no solo en la ficha del cliente: el ticket es un
+     * documento de ese momento y reimprimirlo tiene que dar lo mismo aunque la persona se mude.
+     */
+    if (entCols.has("ciudad") && ciudad) {
+      rowEnt.ciudad = ciudad;
     }
     if (entCols.has("pago_metodo")) {
       rowEnt.pago_metodo = esTransferencia ? "transferencia" : "efectivo";

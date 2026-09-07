@@ -53,13 +53,42 @@ export async function GET(request: NextRequest) {
     }
 
     const tabla = quoteSchemaTable(schema, "sorteo_entradas");
-    const r = await pool.query<{ nombre_participante: string | null; whatsapp_numero: string | null }>(
-      `SELECT nombre_participante, whatsapp_numero
-         FROM ${tabla}
-        WHERE empresa_id = $1::uuid
-          AND sorteo_id = $2::uuid
-          AND upper(regexp_replace(coalesce(documento, ''), '[^0-9A-Za-z]', '', 'g')) = $3
-        ORDER BY created_at DESC
+    const tClientes = quoteSchemaTable(schema, "clientes");
+    const tFlowData = quoteSchemaTable(schema, "chat_flow_data");
+
+    /*
+     * La ciudad se busca en tres lugares, en orden: la venta (columna nueva), lo que la persona
+     * contesto por WhatsApp y la ficha del cliente. Las ventas anteriores a la columna no la
+     * tienen, y esas son justamente las que conviene recuperar del flujo o de la ficha.
+     *
+     * `to_jsonb(e) ->> 'ciudad'` en vez de `e.ciudad`: asi la consulta no se rompe si todavia
+     * no se corrio la migracion que agrega la columna.
+     */
+    const r = await pool.query<{
+      nombre_participante: string | null;
+      whatsapp_numero: string | null;
+      ciudad: string | null;
+    }>(
+      `SELECT e.nombre_participante,
+              e.whatsapp_numero,
+              COALESCE(
+                NULLIF(TRIM(to_jsonb(e) ->> 'ciudad'), ''),
+                (SELECT NULLIF(TRIM(fd.field_value), '')
+                   FROM ${tFlowData} fd
+                  WHERE fd.conversation_id = e.chat_conversation_id
+                    AND fd.empresa_id = e.empresa_id
+                    AND fd.field_name IN ('ciudad', 'localidad', 'ubicacion')
+                    AND NULLIF(TRIM(fd.field_value), '') IS NOT NULL
+                  ORDER BY fd.created_at DESC
+                  LIMIT 1),
+                NULLIF(TRIM(cl.ciudad), '')
+              ) AS ciudad
+         FROM ${tabla} e
+         LEFT JOIN ${tClientes} cl ON cl.id = e.cliente_id AND cl.empresa_id = e.empresa_id
+        WHERE e.empresa_id = $1::uuid
+          AND e.sorteo_id = $2::uuid
+          AND upper(regexp_replace(coalesce(e.documento, ''), '[^0-9A-Za-z]', '', 'g')) = $3
+        ORDER BY e.created_at DESC
         LIMIT 1`,
       [ctx.empresaId, ctx.sorteoId, documento]
     );
@@ -74,6 +103,7 @@ export async function GET(request: NextRequest) {
         encontrado: true,
         nombre: (row.nombre_participante ?? "").trim(),
         telefono: (row.whatsapp_numero ?? "").trim(),
+        ciudad: (row.ciudad ?? "").trim(),
       })
     );
   } catch (e) {

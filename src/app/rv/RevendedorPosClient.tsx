@@ -28,6 +28,15 @@ type SaleResult = {
   revendedor_nombre: string;
 };
 
+/**
+ * La venta va por pasos: boletos → cliente → pago.
+ *
+ * Antes era un formulario único y había que completarlo entero antes de saber cuánto cobrar.
+ * Partida en pasos, lo primero que queda fijo es la cantidad con su total —que es lo que el
+ * comprador pregunta— y recién después se cargan sus datos.
+ */
+type Paso = "boletos" | "cliente" | "pago";
+
 const PYG = new Intl.NumberFormat("es-PY");
 function gs(n: number): string {
   return "₲ " + PYG.format(Math.round(n || 0));
@@ -41,10 +50,15 @@ function newIdemKey(): string {
   }
 }
 
+/** Atajos de cantidad: cubren casi todas las ventas sin abrir el teclado numérico. */
+const CANTIDADES_RAPIDAS = [1, 2, 3, 5, 10];
+
 export default function RevendedorPosClient(props: Props) {
+  const [paso, setPaso] = useState<Paso>("boletos");
   const [documento, setDocumento] = useState("");
   const [nombre, setNombre] = useState("");
   const [telefono, setTelefono] = useState("");
+  const [ciudad, setCiudad] = useState("");
   const [cantidad, setCantidad] = useState<string>("1");
   const [pagoMetodo, setPagoMetodo] = useState<"efectivo" | "transferencia">("efectivo");
   const [submitting, setSubmitting] = useState(false);
@@ -54,7 +68,7 @@ export default function RevendedorPosClient(props: Props) {
   const [avisoBusqueda, setAvisoBusqueda] = useState<string | null>(null);
 
   /**
-   * Autocompleta nombre y teléfono desde una compra anterior de este documento en el sorteo.
+   * Autocompleta nombre, teléfono y ciudad desde una compra anterior con ese documento.
    * Nunca pisa lo que el vendedor ya escribió: si corrigió un dato a mano, ese gana.
    */
   async function buscarCliente() {
@@ -71,7 +85,7 @@ export default function RevendedorPosClient(props: Props) {
       );
       const json = (await res.json().catch(() => ({}))) as {
         success?: boolean;
-        data?: { encontrado?: boolean; nombre?: string; telefono?: string };
+        data?: { encontrado?: boolean; nombre?: string; telefono?: string; ciudad?: string };
         error?: string;
       };
       if (!res.ok || !json.success) {
@@ -81,12 +95,15 @@ export default function RevendedorPosClient(props: Props) {
         setAvisoBusqueda("Sin compras anteriores con ese documento. Cargá los datos a mano.");
         return;
       }
+      const habiaAlgoEscrito = Boolean(nombre.trim() || telefono.trim() || ciudad.trim());
       const n = (json.data.nombre ?? "").trim();
       const t = (json.data.telefono ?? "").trim();
+      const c = (json.data.ciudad ?? "").trim();
       if (n && !nombre.trim()) setNombre(n);
       if (t && !telefono.trim()) setTelefono(t);
+      if (c && !ciudad.trim()) setCiudad(c);
       setAvisoBusqueda(
-        nombre.trim() || telefono.trim()
+        habiaAlgoEscrito
           ? "Comprador encontrado. Se completaron solo los campos vacíos."
           : "Comprador encontrado."
       );
@@ -103,16 +120,30 @@ export default function RevendedorPosClient(props: Props) {
   }, [cantidad]);
   const total = qty * props.precioPorBoleto;
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function reservar() {
+    setErr(null);
+    if (!props.sorteoActivo) return setErr("El sorteo no está activo.");
+    if (qty < 1) return setErr("La cantidad debe ser mayor a 0.");
+    setPaso("cliente");
+  }
+
+  function irAlPago() {
+    setErr(null);
+    if (!nombre.trim()) return setErr("Ingresá el nombre del comprador.");
+    if (!telefono.trim()) return setErr("Ingresá el teléfono.");
+    setPaso("pago");
+  }
+
+  async function confirmar() {
     setErr(null);
     if (!props.sorteoActivo) {
       setErr("El sorteo no está activo.");
       return;
     }
-    if (!nombre.trim()) return setErr("Ingresá el nombre del comprador.");
-    if (!telefono.trim()) return setErr("Ingresá el teléfono.");
-    if (qty < 1) return setErr("La cantidad debe ser mayor a 0.");
+    if (!nombre.trim() || !telefono.trim() || qty < 1) {
+      setErr("Faltan datos de la venta.");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -123,6 +154,7 @@ export default function RevendedorPosClient(props: Props) {
           documento: documento.trim(),
           nombre: nombre.trim(),
           telefono: telefono.trim(),
+          ciudad: ciudad.trim(),
           cantidad: qty,
           pago_metodo: pagoMetodo,
           idempotency_key: newIdemKey(),
@@ -146,9 +178,11 @@ export default function RevendedorPosClient(props: Props) {
 
   function nuevaVenta() {
     setResult(null);
+    setPaso("boletos");
     setDocumento("");
     setNombre("");
     setTelefono("");
+    setCiudad("");
     setCantidad("1");
     setPagoMetodo("efectivo");
     setErr(null);
@@ -169,6 +203,7 @@ export default function RevendedorPosClient(props: Props) {
             <Row k="Comprador" v={nombre || "—"} />
             {documento ? <Row k="Documento" v={documento} /> : null}
             <Row k="Teléfono" v={telefono || "—"} />
+            {ciudad ? <Row k="Ciudad" v={ciudad} /> : null}
             <Row k="Cantidad" v={`${result.cantidad} boleto(s)`} />
             <Row k="Forma de pago" v={result.pago_metodo === "efectivo" ? "Efectivo" : "Transferencia"} />
             <Row k="Estado" v={result.estado_pago === "confirmado" ? "Confirmado" : "Pendiente"} />
@@ -220,7 +255,7 @@ export default function RevendedorPosClient(props: Props) {
     );
   }
 
-  // ---- Formulario de venta ----
+  // ---- Venta en tres pasos ----
   return (
     <div className="min-h-svh bg-slate-100 flex flex-col">
       <header className="bg-slate-900 text-white px-5 py-4">
@@ -236,17 +271,9 @@ export default function RevendedorPosClient(props: Props) {
         </div>
       </header>
 
-      <div className="px-4 -mt-3">
-        {/* Solo el precio: el cupo y el saldo a rendir son datos de control, no de venta. */}
-        <div className="bg-white rounded-2xl shadow-sm p-3 flex items-center justify-center text-center">
-          <div>
-            <div className="text-[10px] uppercase text-slate-400">Precio</div>
-            <div className="text-sm font-bold text-slate-800">{gs(props.precioPorBoleto)}</div>
-          </div>
-        </div>
-      </div>
+      <PasosBarra paso={paso} />
 
-      <form onSubmit={handleSubmit} className="flex-1 px-4 pt-4 pb-6 space-y-3">
+      <div className="flex-1 px-4 pb-6 space-y-3">
         {!props.sorteoActivo && (
           <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-lg px-3 py-2">
             El sorteo no está activo. No se pueden registrar ventas.
@@ -258,98 +285,274 @@ export default function RevendedorPosClient(props: Props) {
           </div>
         )}
 
-        <Field label="Documento (C.I. / RUC)">
-          <div className="flex gap-2">
-            <input
-              inputMode="numeric"
-              value={documento}
-              onChange={(e) => setDocumento(e.target.value)}
-              /** Buscar con Enter sin enviar la venta a medio completar. */
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void buscarCliente();
-                }
-              }}
-              placeholder="Opcional"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
-            />
+        {paso === "boletos" && (
+          <>
+            <div className="bg-white rounded-2xl shadow-sm p-3 text-center">
+              <div className="text-[10px] uppercase text-slate-400">Precio por boleto</div>
+              <div className="text-sm font-bold text-slate-800">{gs(props.precioPorBoleto)}</div>
+            </div>
+
+            <Field label="¿Cuántos boletos?">
+              <div className="mb-2 grid grid-cols-5 gap-2">
+                {CANTIDADES_RAPIDAS.map((n) => (
+                  <button
+                    type="button"
+                    key={n}
+                    onClick={() => setCantidad(String(n))}
+                    className={`rounded-xl py-3 text-base font-bold border ${
+                      qty === n
+                        ? "bg-[#4FAEB2] text-white border-[#4FAEB2]"
+                        : "bg-white text-slate-700 border-slate-200"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <input
+                inputMode="numeric"
+                value={cantidad}
+                onChange={(e) => setCantidad(e.target.value.replace(/[^0-9]/g, ""))}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-center text-lg font-bold outline-none focus:border-[#4FAEB2]"
+              />
+            </Field>
+
+            <TotalCard total={total} />
+
             <button
               type="button"
-              onClick={() => void buscarCliente()}
-              disabled={buscando}
-              title="Buscar comprador por documento"
-              aria-label="Buscar comprador por documento"
-              className="shrink-0 rounded-xl bg-[#1e2a5a] px-4 text-white disabled:opacity-50"
+              onClick={reservar}
+              disabled={!props.sorteoActivo}
+              className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl py-4 font-bold text-base"
             >
-              {buscando ? "…" : "🔍"}
+              RESERVAR {qty > 0 ? `${qty} BOLETO${qty === 1 ? "" : "S"}` : ""}
             </button>
-          </div>
-          {avisoBusqueda && (
-            <p className="mt-1 text-[11px] text-slate-500">{avisoBusqueda}</p>
-          )}
-        </Field>
-        <Field label="Nombre y Apellido">
-          <input
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
-          />
-        </Field>
-        <Field label="Teléfono">
-          <input
-            inputMode="tel"
-            value={telefono}
-            onChange={(e) => setTelefono(e.target.value)}
-            placeholder="Ej: 0981..."
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
-          />
-        </Field>
-        <Field label={`Cantidad × ${gs(props.precioPorBoleto)}`}>
-          <input
-            inputMode="numeric"
-            value={cantidad}
-            onChange={(e) => setCantidad(e.target.value.replace(/[^0-9]/g, ""))}
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
-          />
-        </Field>
-        <Field label="Forma de pago">
-          <div className="grid grid-cols-2 gap-2">
-            {(["efectivo", "transferencia"] as const).map((m) => (
+          </>
+        )}
+
+        {paso === "cliente" && (
+          <>
+            <ResumenBoletos qty={qty} total={total} onEditar={() => setPaso("boletos")} />
+
+            <Field label="Documento (C.I. / RUC)">
+              <div className="flex gap-2">
+                <input
+                  inputMode="numeric"
+                  value={documento}
+                  onChange={(e) => setDocumento(e.target.value)}
+                  /** Buscar con Enter, sin enviar la venta a medio completar. */
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void buscarCliente();
+                    }
+                  }}
+                  placeholder="Opcional"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
+                />
+                <button
+                  type="button"
+                  onClick={() => void buscarCliente()}
+                  disabled={buscando}
+                  title="Buscar comprador por documento"
+                  aria-label="Buscar comprador por documento"
+                  className="shrink-0 rounded-xl bg-[#1e2a5a] px-4 text-white disabled:opacity-50"
+                >
+                  {buscando ? "…" : "🔍"}
+                </button>
+              </div>
+              {avisoBusqueda && <p className="mt-1 text-[11px] text-slate-500">{avisoBusqueda}</p>}
+            </Field>
+
+            <Field label="Nombre y Apellido">
+              <input
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
+              />
+            </Field>
+
+            <Field label="Teléfono">
+              <input
+                inputMode="tel"
+                value={telefono}
+                onChange={(e) => setTelefono(e.target.value)}
+                placeholder="Ej: 0981..."
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
+              />
+            </Field>
+
+            <Field label="Ciudad">
+              <input
+                value={ciudad}
+                onChange={(e) => setCiudad(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
+              />
+            </Field>
+
+            <div className="flex gap-2">
               <button
                 type="button"
-                key={m}
-                onClick={() => setPagoMetodo(m)}
-                className={`rounded-xl py-3 text-sm font-semibold border ${
-                  pagoMetodo === m
-                    ? "bg-[#4FAEB2] text-white border-[#4FAEB2]"
-                    : "bg-white text-slate-700 border-slate-200"
-                }`}
+                onClick={() => setPaso("boletos")}
+                className="rounded-xl border border-slate-300 bg-white px-5 py-4 font-semibold text-slate-700"
               >
-                {m === "efectivo" ? "Efectivo" : "Transferencia"}
+                Atrás
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={irAlPago}
+                className="flex-1 rounded-xl bg-slate-900 py-4 text-base font-bold text-white hover:bg-slate-800"
+              >
+                CONTINUAR AL PAGO
+              </button>
+            </div>
+          </>
+        )}
+
+        {paso === "pago" && (
+          <>
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <div className="mb-2 text-xs font-semibold uppercase text-slate-400">Resumen</div>
+              <div className="space-y-1 text-sm text-slate-800">
+                <Row k="Comprador" v={nombre || "—"} />
+                {documento ? <Row k="Documento" v={documento} /> : null}
+                <Row k="Teléfono" v={telefono || "—"} />
+                {ciudad ? <Row k="Ciudad" v={ciudad} /> : null}
+                <Row k="Boletos" v={`${qty}`} />
+              </div>
+            </div>
+
+            <Field label="Forma de pago">
+              <div className="grid grid-cols-2 gap-2">
+                {(["efectivo", "transferencia"] as const).map((m) => (
+                  <button
+                    type="button"
+                    key={m}
+                    onClick={() => setPagoMetodo(m)}
+                    className={`rounded-xl py-3 text-sm font-semibold border ${
+                      pagoMetodo === m
+                        ? "bg-[#4FAEB2] text-white border-[#4FAEB2]"
+                        : "bg-white text-slate-700 border-slate-200"
+                    }`}
+                  >
+                    {m === "efectivo" ? "Efectivo" : "Transferencia"}
+                  </button>
+                ))}
+              </div>
+              {pagoMetodo === "transferencia" ? (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  La venta queda pendiente de revisión del comprobante.
+                </p>
+              ) : null}
+            </Field>
+
+            <TotalCard total={total} />
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPaso("cliente")}
+                disabled={submitting}
+                className="rounded-xl border border-slate-300 bg-white px-5 py-4 font-semibold text-slate-700 disabled:opacity-50"
+              >
+                Atrás
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmar()}
+                disabled={submitting || !props.sorteoActivo}
+                className="flex-1 rounded-xl bg-slate-900 py-4 text-base font-bold text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {submitting ? "Registrando…" : "CONFIRMAR E IMPRIMIR"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Dónde está parada la venta. Tres pasos entran cómodos hasta en la pantalla más angosta. */
+function PasosBarra({ paso }: { paso: Paso }) {
+  const pasos: { id: Paso; n: number; label: string }[] = [
+    { id: "boletos", n: 1, label: "Boletos" },
+    { id: "cliente", n: 2, label: "Cliente" },
+    { id: "pago", n: 3, label: "Pago" },
+  ];
+  const actual = pasos.find((p) => p.id === paso)?.n ?? 1;
+  return (
+    <div className="flex items-center gap-1 px-4 py-3">
+      {pasos.map((p) => {
+        const hecho = p.n < actual;
+        const activo = p.n === actual;
+        return (
+          <div key={p.id} className="flex flex-1 items-center gap-1.5">
+            <span
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                activo
+                  ? "bg-slate-900 text-white"
+                  : hecho
+                    ? "bg-[#4FAEB2] text-white"
+                    : "bg-slate-200 text-slate-500"
+              }`}
+            >
+              {hecho ? "✓" : p.n}
+            </span>
+            <span
+              className={`truncate text-[11px] font-semibold ${
+                activo ? "text-slate-900" : "text-slate-400"
+              }`}
+            >
+              {p.label}
+            </span>
           </div>
-          {pagoMetodo === "transferencia" ? (
-            <p className="text-[11px] text-slate-500 mt-1">
-              La venta queda pendiente de revisión del comprobante.
-            </p>
-          ) : null}
-        </Field>
+        );
+      })}
+    </div>
+  );
+}
 
-        <div className="bg-white rounded-2xl shadow-sm p-4 flex items-center justify-between">
-          <span className="text-sm font-semibold text-slate-600">TOTAL</span>
-          <span className="text-2xl font-extrabold text-slate-900">{gs(total)}</span>
+/**
+ * Los boletos ya elegidos, con su total, mientras se cargan los datos del comprador.
+ *
+ * Los números todavía no salen de la base: se asignan al confirmar la venta, en la misma
+ * transacción que el correlativo. Sacarlos antes dejaría numeración quemada cada vez que una
+ * venta se abandona a mitad de camino, y eso no se puede deshacer.
+ */
+function ResumenBoletos({
+  qty,
+  total,
+  onEditar,
+}: {
+  qty: number;
+  total: number;
+  onEditar: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-2xl bg-[#1e2a5a] px-4 py-3 text-white">
+      <div>
+        <div className="text-[10px] uppercase opacity-70">Reservado</div>
+        <div className="text-sm font-bold">
+          {qty} boleto{qty === 1 ? "" : "s"} · {gs(total)}
         </div>
+      </div>
+      <button
+        type="button"
+        onClick={onEditar}
+        className="rounded-lg border border-white/40 px-3 py-1.5 text-xs font-semibold"
+      >
+        Cambiar
+      </button>
+    </div>
+  );
+}
 
-        <button
-          type="submit"
-          disabled={submitting || !props.sorteoActivo}
-          className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl py-4 font-bold text-base"
-        >
-          {submitting ? "Registrando…" : "CONFIRMAR E IMPRIMIR"}
-        </button>
-      </form>
+function TotalCard({ total }: { total: number }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4 flex items-center justify-between">
+      <span className="text-sm font-semibold text-slate-600">TOTAL</span>
+      <span className="text-2xl font-extrabold text-slate-900">{gs(total)}</span>
     </div>
   );
 }
