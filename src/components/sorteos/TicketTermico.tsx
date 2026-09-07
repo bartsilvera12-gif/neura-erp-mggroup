@@ -5,10 +5,10 @@ import type { ConfigTicket, DatosTicket } from "@/lib/sorteos/ticket-impresion-t
 const PYG = new Intl.NumberFormat("es-PY");
 const gs = (n: number) => PYG.format(Math.round(n || 0)) + " Gs.";
 
-function fechaHora(iso: string | null): string {
+/** Solo la fecha, como en el modelo del comprobante: la hora no le dice nada al comprador. */
+function soloFecha(iso: string | null): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" });
+  return new Date(iso).toLocaleDateString("es-PY", { dateStyle: "short" });
 }
 
 /**
@@ -57,8 +57,10 @@ export default function TicketTermico({
     datos.cantidad > 0 ? Math.round(datos.monto / datos.cantidad) : datos.monto;
   const qr = numeroPrincipal ? datos.qr_por_cupon?.[numeroPrincipal] : undefined;
 
+  /** Documento, ciudad y celular en un solo renglón, igual que el comprobante de WhatsApp. */
   const contacto = [
     datos.documento ? `CI: ${datos.documento}` : "",
+    datos.ciudad ? `CIUDAD: ${datos.ciudad.toUpperCase()}` : "",
     cfg.mostrar_telefono && datos.telefono ? `Cel: ${datos.telefono}` : "",
   ]
     .filter(Boolean)
@@ -129,39 +131,30 @@ export default function TicketTermico({
         NRO: {numeros.join("  ") || "—"}
       </div>
 
-      {/*
-        La ciudad va donde la boleta tenía la línea punteada. Cuando no hay ciudad se deja la
-        línea: sin nada, el número y el pie quedan pegados en un solo bloque.
-      */}
-      {datos.ciudad ? (
-        <div className="font-bold leading-tight">CIUDAD: {datos.ciudad.toUpperCase()}</div>
-      ) : (
-        <div className="my-1 border-t border-dashed border-black" />
-      )}
-
       {angosto && qrImg && <div className="mt-1 flex justify-center">{qrImg}</div>}
 
       {/*
-        Datos de control, chicos y al final: el boleto es del comprador, pero el vendedor
-        necesita poder atar el papel a la venta cuando rinde la caja.
+        Fecha e importe, como en el modelo. El número de orden va pegado a la fecha —fuera de
+        la estructura no entra en ningún lado— porque sin él el vendedor no puede atar el papel
+        a la venta cuando rinde la caja.
       */}
-      <div className="mt-1 leading-tight">
+      <div className="leading-tight">
         <div>
-          N.º {datos.numero_orden ?? "—"} · {fechaHora(datos.fecha)}
+          FECHA: {soloFecha(datos.fecha)} · N.º {datos.numero_orden ?? "—"}
           {boleto && boleto.de > 1 ? ` · Boleto ${boleto.n}/${boleto.de}` : ""}
         </div>
-        {cfg.mostrar_vendedor && datos.vendedor_numero != null && (
-          <div>
-            Vendedor N.º {datos.vendedor_numero}
-            {datos.vendedor_nombre ? ` · ${datos.vendedor_nombre}` : ""}
-          </div>
-        )}
         {boleto && boleto.de > 1 ? (
           <div>
             {gs(montoBoleto)} · compra de {boleto.de} boletos {gs(datos.monto)}
           </div>
         ) : (
           <div>{gs(montoBoleto)}</div>
+        )}
+        {cfg.mostrar_vendedor && datos.vendedor_numero != null && (
+          <div>
+            Vendedor N.º {datos.vendedor_numero}
+            {datos.vendedor_nombre ? ` · ${datos.vendedor_nombre}` : ""}
+          </div>
         )}
       </div>
 

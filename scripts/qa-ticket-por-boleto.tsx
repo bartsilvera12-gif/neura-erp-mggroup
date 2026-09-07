@@ -76,13 +76,17 @@ console.log("Formato de la boleta (lo que pidió el cliente)");
       />
     )
   );
-  chequear("documento y celular en una sola línea", t.includes("CI: 4567890 | Cel: 0981123456"), t);
+  chequear("documento, ciudad y celular en una sola línea", t.includes("CI: 4567890 | CIUDAD: ENCARNACIÓN | Cel: 0981123456"), t);
   chequear("edición con el precio del boleto", t.includes("EDICIÓN: NISSAN FRONTIER A: 10.000 GS."), t);
-  chequear("la ciudad, en lugar de la rayita", t.includes("CIUDAD: ENCARNACIÓN"), t);
+  chequear(
+    "fecha sin hora, con el número de orden al lado",
+    t.includes("FECHA: 7/9/26 · N.º 48") && !t.includes("a. m.") && !t.includes("p. m."),
+    t
+  );
   chequear("el nombre del comprador", t.includes("Juan Gómez"), t);
 }
 
-console.log("Sin ciudad se mantiene la separación");
+console.log("Sin ciudad, el renglón se arma igual");
 {
   const html = renderToStaticMarkup(
     <TicketTermico
@@ -92,7 +96,7 @@ console.log("Sin ciudad se mantiene la separación");
     />
   );
   chequear("no imprime «CIUDAD:» vacío", !texto(html).includes("CIUDAD:"), texto(html));
-  chequear("deja la línea punteada", html.includes("border-dashed"), "sin línea");
+  chequear("el resto del renglón queda bien", texto(html).includes("CI: 4567890 | Cel: 0981123456"), texto(html));
 }
 
 console.log("Compra de 1 boleto");

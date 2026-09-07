@@ -19,6 +19,8 @@ export type SorteoTicketRenderInput = {
   documento?: string;
   telefono?: string;
   ciudad?: string;
+  /** Total de la compra. Va impreso en el comprobante del estilo minimal. */
+  montoTotal?: number;
   numeroOrden: string;
   cupones: string[];
   /** ISO o texto localizable */
