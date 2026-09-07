@@ -456,7 +456,7 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
       fullText = ctx.ocrTextOverride;
     } else {
       try {
-        const r = await runGoogleVisionDocumentOcr(ctx.bytes);
+        const r = await runGoogleVisionDocumentOcr(ctx.bytes, ctx.mimeType);
         fullText = r.fullText;
       } catch (e) {
         ocrFailedReason = e instanceof Error ? e.message : "ocr_error";
