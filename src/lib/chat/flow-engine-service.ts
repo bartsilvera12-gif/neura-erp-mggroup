@@ -478,6 +478,24 @@ function augmentSorteoPricingFromInteractiveOption(
   return out;
 }
 
+/**
+ * ¿El mensaje llegó reenviado de otro chat?
+ *
+ * WhatsApp lo marca en `context.forwarded` (y en `frequently_forwarded` cuando ya dio muchas
+ * vueltas). Es el dato que separa a alguien que manda el comprobante de su propio pago de
+ * alguien que reenvía la captura de otra persona.
+ *
+ * `context` también aparece cuando se responde a un mensaje, así que se miran esas dos
+ * banderas y no la presencia del objeto.
+ */
+export function mensajeLlegoReenviado(rawPayload: Record<string, unknown> | null | undefined): boolean {
+  const ctx = (rawPayload?.context ?? null) as
+    | { forwarded?: unknown; frequently_forwarded?: unknown }
+    | null;
+  if (!ctx || typeof ctx !== "object") return false;
+  return ctx.forwarded === true || ctx.frequently_forwarded === true;
+}
+
 /** Título visible de una respuesta interactiva (botón/lista) de WhatsApp. */
 function whatsappInteractiveReplyTitle(rawPayload: Record<string, unknown>): string {
   const intr = (rawPayload?.interactive ?? null) as
@@ -4300,6 +4318,7 @@ ${texto}` : prefijo;
       bytes: Buffer.from(media.bytes),
       mimeType: media.mimeType,
       settings: valSettings,
+      reenviado: mensajeLlegoReenviado(params.rawPayload),
       })
     );
 

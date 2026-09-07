@@ -13,6 +13,7 @@ export type ComprobanteEstadoValidacion =
   | "ocr_error"
   | "monto_incoherente"
   | "datos_bancarios_incoherentes"
+  | "comprobante_reenviado"
   | "aprobado_manual"
   | "rechazado_manual";
 
@@ -36,6 +37,8 @@ export interface ComprobanteValidationMessages {
   monto_incoherente: string;
   /** Datos bancarios del OCR no coinciden con los configurados en el canal (opt-in). */
   datos_bancarios_incoherentes: string;
+  /** El comprobante llegó reenviado de otro chat. */
+  comprobante_reenviado: string;
   boton_otro_titulo: string;
   boton_asesor_titulo: string;
 }
@@ -55,6 +58,8 @@ export interface ComprobanteValidationSettings {
    * Por defecto false: no altera el comportamiento existente.
    */
   validar_monto_vs_flujo: boolean;
+  /** Rechaza los comprobantes que llegan reenviados de otro chat. */
+  rechazar_comprobante_reenviado: boolean;
   /** Tolerancia en guaraníes: abs(ocr - esperado) <= tolerancia se considera válido. */
   monto_tolerancia_absoluta_gs: number;
   /** Orden de lectura de field_name en chat_flow_data para el monto esperado. */
@@ -148,6 +153,8 @@ export const DEFAULT_COMPROBANTE_VALIDATION_MESSAGES: ComprobanteValidationMessa
     "El comprobante recibido no coincide con el monto seleccionado. Podés reenviar el comprobante o hablar con un asesor.",
   datos_bancarios_incoherentes:
     "El comprobante no coincide con los datos bancarios esperados. Podés reenviar el comprobante o hablar con un asesor.",
+  comprobante_reenviado:
+    "No podemos tomar un comprobante reenviado de otro chat. Mandanos la captura directo desde la app de tu banco, por favor.",
   boton_otro_titulo: "Otro comprobante",
   boton_asesor_titulo: "Hablar con asesor",
 };
@@ -165,6 +172,12 @@ export function defaultComprobanteValidationSettings(): ComprobanteValidationSet
   return {
     enabled: false,
     validar_monto_vs_flujo: false,
+    /*
+     * Un comprobante reenviado no prueba nada: es la captura de otra persona, o la de una
+     * compra anterior. Va prendido de fábrica porque quien activa esta validación justamente
+     * quiere eso; el que forwardea su propio comprobante lo vuelve a mandar y listo.
+     */
+    rechazar_comprobante_reenviado: true,
     monto_tolerancia_absoluta_gs: 0,
     monto_fields_prioridad: ["monto", "monto_compra", "sorteo_monto_opcion"],
     validar_datos_bancarios_ocr: false,
@@ -258,6 +271,10 @@ export function parseComprobanteValidationConfig(config: unknown): ComprobanteVa
       typeof messages.boton_asesor_titulo === "string" && messages.boton_asesor_titulo.trim()
         ? messages.boton_asesor_titulo.trim().slice(0, 20)
         : base.messages.boton_asesor_titulo,
+    comprobante_reenviado:
+      typeof messages.comprobante_reenviado === "string" && messages.comprobante_reenviado.trim()
+        ? messages.comprobante_reenviado.trim()
+        : base.messages.comprobante_reenviado,
     monto_incoherente:
       typeof messages.monto_incoherente === "string" && messages.monto_incoherente.trim()
         ? messages.monto_incoherente.trim()
@@ -322,6 +339,8 @@ export function parseComprobanteValidationConfig(config: unknown): ComprobanteVa
   return {
     enabled: boolOr(r.enabled, base.enabled),
     validar_monto_vs_flujo: r.validar_monto_vs_flujo === true,
+    /** Solo un `false` explícito lo apaga: si la clave no está, queda prendido. */
+    rechazar_comprobante_reenviado: r.rechazar_comprobante_reenviado !== false,
     monto_tolerancia_absoluta_gs: tolerancia,
     monto_fields_prioridad: montoFields,
     validar_datos_bancarios_ocr: r.validar_datos_bancarios_ocr === true,
@@ -352,6 +371,7 @@ export function comprobanteValidationSettingsForForm(
   return {
     enabled: settings.enabled,
     validar_monto_vs_flujo: settings.validar_monto_vs_flujo,
+    rechazar_comprobante_reenviado: settings.rechazar_comprobante_reenviado,
     monto_tolerancia_absoluta_gs: settings.monto_tolerancia_absoluta_gs,
     monto_fields_prioridad: [...settings.monto_fields_prioridad],
     validar_datos_bancarios_ocr: settings.validar_datos_bancarios_ocr,

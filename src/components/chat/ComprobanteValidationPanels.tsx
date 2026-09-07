@@ -53,12 +53,32 @@ export function ComprobanteValidationPanelComprobantesCore({ value: s, onChange 
 
       <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
         <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+          Comprobantes reenviados
+        </h4>
+        <p className="text-[11px] text-slate-500">
+          Un comprobante reenviado de otro chat no prueba el pago: puede ser la captura de otra
+          persona o la de una compra anterior. Se rechaza y se le pide al comprador que lo mande
+          directo desde la app de su banco.
+        </p>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={s.rechazar_comprobante_reenviado}
+            onChange={(e) => set({ rechazar_comprobante_reenviado: e.target.checked })}
+          />
+          Rechazar los comprobantes que llegan reenviados
+        </label>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+        <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
           Monto del comprobante vs monto elegido en el flujo
         </h4>
         <p className="text-[11px] text-slate-500">
-          Opcional: compara el monto leído por OCR con el valor guardado en{" "}
-          <code className="bg-slate-50 px-0.5 rounded">chat_flow_data</code> del{" "}
-          <strong>mismo</strong> <code className="bg-slate-50 px-0.5 rounded">flow_session_id</code>.
+          Compara el monto leído por OCR con el de la compra. Si el flujo no guardó un monto
+          —pasa cuando la cantidad se pide por texto— se calcula como cantidad × precio del
+          sorteo, que es lo que se le cobra. Sin esto, un comprobante por menos plata pasa como
+          válido.
         </p>
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input

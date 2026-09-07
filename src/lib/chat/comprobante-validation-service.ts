@@ -28,6 +28,7 @@ import {
   fetchExpectedMontoGsFromFlowSession,
   validateReceiptAmountAgainstFlow,
 } from "@/lib/chat/comprobante-monto-flow-validation";
+import { buildMontoCalculadoVars, MONTO_CALCULADO_KEYS } from "@/lib/chat/flow-monto-calculado";
 import {
   selectReceiptMontoFromOcrText,
   type MontoOcrSelectionAudit,
@@ -59,6 +60,7 @@ const ESTADOS_HASH_BLOQUEA_REUSO: ComprobanteEstadoValidacion[] = [
   "duplicado_ocr",
   "monto_incoherente",
   "datos_bancarios_incoherentes",
+  "comprobante_reenviado",
 ];
 
 function normalizeWs(s: string): string {
@@ -273,11 +275,53 @@ type PipelineCtx = {
   bytes: Buffer;
   mimeType: string;
   settings: ComprobanteValidationSettings;
+  /** El mensaje llegó reenviado de otro chat (`context.forwarded` de WhatsApp). */
+  reenviado?: boolean;
   /**
    * Solo pruebas automatizadas: si se define, no se llama a Vision y se usa como texto OCR crudo.
    */
   ocrTextOverride?: string | null;
 };
+
+/**
+ * Total esperado cuando el flujo no dejó ningún `monto` guardado.
+ *
+ * Es el mismo cálculo que hace el mensaje que se le manda al cliente —cantidad × precio del
+ * sorteo—, así que valida contra la cifra que él vio y contra la que después se le cobra.
+ * Devuelve null si no hay cantidad todavía o si el flujo no está atado a un sorteo: ahí la
+ * validación se sigue salteando, como antes.
+ */
+async function calcularMontoEsperadoDesdeCantidad(
+  supabase: AppSupabaseClient,
+  empresaId: string,
+  flowCode: string,
+  flowSessionId: string
+): Promise<number | null> {
+  try {
+    const { data, error } = await supabase
+      .from("chat_flow_data")
+      .select("field_name, field_value")
+      .eq("flow_session_id", flowSessionId)
+      .in("field_name", ["cantidad", "cantidad_boletos"]);
+    if (error) return null;
+
+    const flowData: Record<string, string> = {};
+    for (const row of (data ?? []) as { field_name?: string; field_value?: string }[]) {
+      const k = (row.field_name ?? "").trim();
+      if (k) flowData[k] = row.field_value ?? "";
+    }
+
+    const vars = await buildMontoCalculadoVars({ supabase, empresaId, flowCode, flowData });
+    const total = Number(vars[MONTO_CALCULADO_KEYS.total] ?? "");
+    return Number.isFinite(total) && total > 0 ? Math.round(total) : null;
+  } catch (e) {
+    console.warn(
+      "[sorteo-comprobante][monto-esperado] no_se_pudo_calcular",
+      e instanceof Error ? e.message : e
+    );
+    return null;
+  }
+}
 
 async function insertValidationRow(
   supabase: AppSupabaseClient,
@@ -559,6 +603,19 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
   let precalcEsperadoGs: number | null | undefined = undefined;
   if (settings.validar_monto_vs_flujo) {
     precalcEsperadoGs = await fetchExpectedMontoGsFromFlowSession(supabase, sid, mfPrior);
+    if (precalcEsperadoGs == null) {
+      /*
+       * Cuando la cantidad se pide por texto («respondé con el número») no queda ningún campo
+       * `monto` guardado: el total se calcula al vuelo para mostrarlo en el mensaje y no se
+       * escribe en `chat_flow_data`. Sin monto esperado esta validación se saltaba en silencio,
+       * y un comprobante por menos plata de la que corresponde pasaba como válido.
+       *
+       * Se recalcula igual que lo hace el mensaje: cantidad × precio del sorteo, que es
+       * exactamente lo que despues cobra la orden cuando no hay promo. Un monto de promo ya
+       * guardado sigue teniendo prioridad, porque en ese caso el paso anterior lo encuentra.
+       */
+      precalcEsperadoGs = await calcularMontoEsperadoDesdeCantidad(supabase, ctx.empresaId, fc, sid);
+    }
   }
 
   const montoOpts: SelectReceiptMontoFromOcrOptions = {
@@ -682,7 +739,15 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
   let estado: ComprobanteEstadoValidacion = "valido";
   let motivo = "ok";
 
-  if (ocrRefStrongDup) {
+  if (ctx.reenviado && settings.rechazar_comprobante_reenviado) {
+    /*
+     * Va primero, antes que cualquier otra regla: un comprobante reenviado no prueba nada,
+     * por mas que el OCR lo lea perfecto y los datos bancarios coincidan. Es la captura de
+     * otra persona, o la de una compra anterior que ya se uso.
+     */
+    estado = "comprobante_reenviado";
+    motivo = "mensaje_reenviado";
+  } else if (ocrRefStrongDup) {
     estado = "duplicado_ocr";
     motivo = "ocr_duplicado_referencia";
   } else if (ocrFingerprintWeakDup) {
@@ -767,6 +832,27 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
       advance: false,
       sendInteractive: {
         body: settings.messages.ocr_duplicado,
+        buttons: [
+          { id: COMPROBANTE_BUTTON_IDS.enviar_otro, title: settings.messages.boton_otro_titulo.slice(0, 20) },
+          {
+            id: COMPROBANTE_BUTTON_IDS.hablar_asesor,
+            title: settings.messages.boton_asesor_titulo.slice(0, 20),
+          },
+        ],
+      },
+    };
+  }
+
+  if (estado === "comprobante_reenviado") {
+    return {
+      kind: "resolved",
+      validationId,
+      estado,
+      motivo,
+      flowUpserts,
+      advance: false,
+      sendInteractive: {
+        body: settings.messages.comprobante_reenviado,
         buttons: [
           { id: COMPROBANTE_BUTTON_IDS.enviar_otro, title: settings.messages.boton_otro_titulo.slice(0, 20) },
           {
@@ -901,6 +987,7 @@ export async function mensajeClienteComprobanteNoValido(
   }
   if (estado === "duplicado_hash") return s.messages.hash_duplicado;
   if (estado === "duplicado_ocr") return s.messages.ocr_duplicado;
+  if (estado === "comprobante_reenviado") return s.messages.comprobante_reenviado;
   if (estado === "monto_incoherente") return s.messages.monto_incoherente;
   if (estado === "datos_bancarios_incoherentes") return s.messages.datos_bancarios_incoherentes;
   if (estado === "ocr_error") return s.messages.ocr_insuficiente;
