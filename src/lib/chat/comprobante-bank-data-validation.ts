@@ -76,7 +76,7 @@ export function extractBankDetailsFromOcr(fullText: string): BankDetailsOcr {
 
   let titular = "";
   const titRe =
-    /(?:titular|beneficiario|orden\s+de|a\s+nombre\s+de|a\s+favor\s+de|favor\s+de|destinatario)\s*[:\s#.-]+([^\n\r|]{3,100})/i;
+    /(?:titular|beneficiario|orden\s+de|a\s+nombre\s+de|a\s+favor\s+de|favor\s+de|destinatario|enviado\s+a|enviada\s+a)\s*[:\s#.-]+([^\n\r|]{3,100})/i;
   const tm = t.match(titRe);
   if (tm?.[1]) {
     titular = tm[1]
@@ -107,14 +107,31 @@ function titularMatches(expected: string, ocr: string): boolean {
   return a === b || a.includes(b) || b.includes(a);
 }
 
-function cuentaMatches(expected: string, ocr: string): boolean {
+function unaCuentaCoincide(expected: string, ocr: string): boolean {
   const a = normalizeBankAccountDigits(expected);
   const b = normalizeBankAccountDigits(ocr);
   if (a.length < 4 || b.length < 4) return false;
   return a === b || a.endsWith(b) || b.endsWith(a);
 }
 
-function aliasMatches(expected: string, ocr: string): boolean {
+/** También admite varias cuentas separadas, por el mismo motivo que los alias. */
+function cuentaMatches(expected: string, ocr: string): boolean {
+  return separarValores(expected).some((e) => unaCuentaCoincide(e, ocr));
+}
+
+/**
+ * Un negocio suele tener más de un alias —la cédula y el teléfono, por ejemplo— y el cliente
+ * transfiere a cualquiera de los dos. Se aceptan varios separados por coma, punto y coma o
+ * salto de línea; alcanza con que coincida uno.
+ */
+function separarValores(v: string): string[] {
+  return v
+    .split(/[,;\n\r]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function unAliasCoincide(expected: string, ocr: string): boolean {
   const a = normalizeBankText(expected);
   const b = normalizeBankText(ocr);
   if (!a || !b) return false;
@@ -124,6 +141,10 @@ function aliasMatches(expected: string, ocr: string): boolean {
   const db = normalizeBankAccountDigits(ocr);
   if (da.length >= 6 && db.length >= 6 && da === db) return true;
   return false;
+}
+
+function aliasMatches(expected: string, ocr: string): boolean {
+  return separarValores(expected).some((e) => unAliasCoincide(e, ocr));
 }
 
 /**
@@ -170,7 +191,15 @@ function supplementBankDetailsFromFullText(
   const titExp = expected.titular.trim();
   if (titExp) {
     const nt = normalizeBankText(titExp);
-    const inText = nt.length >= 3 && mergedNorm.includes(nt);
+    /**
+     * Los bancos recortan el nombre del destinatario: la cuenta está a nombre de «Magno Sotelo
+     * Espinola» y el comprobante imprime «Magno Sotelo». Exigir el nombre completo hacía
+     * rechazar transferencias legítimas, así que alcanza con nombre y primer apellido.
+     */
+    const dosPrimeras = nt.split(" ").filter(Boolean).slice(0, 2).join(" ");
+    const inText =
+      (nt.length >= 3 && mergedNorm.includes(nt)) ||
+      (dosPrimeras.length >= 6 && mergedNorm.includes(dosPrimeras));
     if (inText && (!out.titular || !titularMatches(titExp, out.titular))) {
       out.titular = titExp;
     }
