@@ -53,6 +53,39 @@ export default function TicketPage() {
 
   const copias = Math.max(1, cfg.copias);
 
+  /**
+   * Una hoja por número comprado.
+   *
+   * Antes los tres números de una compra salían juntos en la misma hoja, y así no se pueden
+   * repartir: cada boleto es lo que una persona guarda o regala. Con varios números se imprime
+   * un ticket por número, y el importe de cada hoja es el de un boleto, no el de la compra
+   * entera —tres hojas diciendo 30.000 cada una se leen como si hubiera pagado 90.000.
+   *
+   * Las copias configuradas se aplican sobre cada número: 3 números × 2 copias = 6 hojas.
+   */
+  const numeros = datos?.cupones ?? [];
+  const variosBoletos = numeros.length > 1;
+  const montoPorBoleto = variosBoletos
+    ? Math.round((datos?.monto ?? 0) / numeros.length)
+    : (datos?.monto ?? 0);
+  const hojas: { copia: { n: number; de: number }; boleto?: { n: number; de: number; numero: string; monto: number } }[] = [];
+  if (datos) {
+    if (variosBoletos) {
+      numeros.forEach((numero, i) => {
+        for (let c = 0; c < copias; c++) {
+          hojas.push({
+            copia: { n: c + 1, de: copias },
+            boleto: { n: i + 1, de: numeros.length, numero, monto: montoPorBoleto },
+          });
+        }
+      });
+    } else {
+      for (let c = 0; c < copias; c++) {
+        hojas.push({ copia: { n: c + 1, de: copias } });
+      }
+    }
+  }
+
   return (
     <div className="min-h-svh bg-slate-100 py-4">
       {/*
@@ -95,18 +128,16 @@ export default function TicketPage() {
               ← Volver
             </button>
             <p className="mt-2 text-center text-[11px] text-slate-500">
-              Papel {cfg.ancho_mm} mm · {copias === 1 ? "1 copia" : `${copias} copias`}. Reimprimir
-              no genera otra venta ni otro número.
+              Papel {cfg.ancho_mm} mm · {hojas.length === 1 ? "1 hoja" : `${hojas.length} hojas`}
+              {variosBoletos ? " (una por número)" : ""}
+              {copias > 1 ? ` · ${copias} copias` : ""}. Reimprimir no genera otra venta ni otro
+              número.
             </p>
           </div>
 
-          {Array.from({ length: copias }, (_, i) => (
+          {hojas.map((hoja, i) => (
             <div key={i} className="hoja-ticket mb-4 bg-white p-2">
-              <TicketTermico
-                cfg={cfg}
-                datos={datos}
-                copia={{ n: i + 1, de: copias }}
-              />
+              <TicketTermico cfg={cfg} datos={datos} copia={hoja.copia} boleto={hoja.boleto} />
             </div>
           ))}
         </>

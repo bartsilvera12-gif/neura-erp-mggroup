@@ -58,7 +58,8 @@
     "qa:chat-flow-node-fks": "node scripts/qa-chat-flow-node-fks-tenants.cjs",
     "db:apply-provision-chat-flow-node-fks": "node scripts/apply-migration-file-pg.cjs supabase/migrations/20260531100000_provision_fix_chat_flow_node_fks_one_schema.sql",
     "logo:sin-fondo": "tsx scripts/limpiar-fondo-logo.ts",
-    "qa:datos-guardados": "tsx --conditions=react-server scripts/qa-sorteo-datos-guardados.ts"
+    "qa:datos-guardados": "tsx --conditions=react-server scripts/qa-sorteo-datos-guardados.ts",
+    "qa:ticket-por-boleto": "tsx scripts/qa-ticket-por-boleto.tsx"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -30,6 +30,14 @@ const EJEMPLO: DatosTicket = {
   vendedor_numero: 3,
 };
 
+/** Primera de las dos hojas de esa compra. */
+const EJEMPLO_BOLETO = {
+  n: 1,
+  de: EJEMPLO.cupones.length,
+  numero: EJEMPLO.cupones[0],
+  monto: Math.round(EJEMPLO.monto / EJEMPLO.cupones.length),
+};
+
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
@@ -226,7 +234,9 @@ export default function ConfigTicketPage() {
             </h2>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="mx-auto bg-white p-2 shadow-sm" style={{ width: "fit-content" }}>
-                <TicketTermico cfg={cfg} datos={EJEMPLO} />
+                {/* La compra de ejemplo es de dos boletos: se muestra la primera hoja, que es
+                    como sale de verdad, un número por hoja. */}
+                <TicketTermico cfg={cfg} datos={EJEMPLO} boleto={EJEMPLO_BOLETO} />
               </div>
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-slate-500">

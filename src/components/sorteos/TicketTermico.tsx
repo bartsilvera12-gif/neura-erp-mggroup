@@ -32,15 +32,27 @@ export default function TicketTermico({
   cfg,
   datos,
   copia,
+  boleto,
 }: {
   cfg: ConfigTicket;
   datos: DatosTicket;
   /** Número de copia, cuando se imprime más de una. */
   copia?: { n: number; de: number };
+  /**
+   * Un boleto suelto de la compra.
+   *
+   * Cuando alguien compra tres números, se imprimen tres tickets de un número cada uno: el
+   * boleto es lo que la persona guarda o regala, y dos números en la misma hoja no se pueden
+   * repartir. Sin esta prop el ticket sale con todos los números juntos, que es lo que sirve
+   * para la vista previa y para una compra de un solo boleto.
+   */
+  boleto?: { n: number; de: number; numero: string; monto: number };
 }) {
   const anchoMm = cfg.ancho_mm;
   /** Margen de 3 mm a cada lado: el área imprimible es menor que el papel. */
   const contenidoMm = anchoMm - 6;
+  const numeros = boleto ? [boleto.numero] : datos.cupones;
+  const monto = boleto ? boleto.monto : datos.monto;
 
   return (
     <div
@@ -69,6 +81,11 @@ export default function TicketTermico({
       <div className="text-center font-bold leading-tight">
         TICKET N.º {datos.numero_orden ?? "—"}
       </div>
+      {boleto && boleto.de > 1 && (
+        <div className="text-center font-bold leading-tight">
+          Boleto {boleto.n} de {boleto.de}
+        </div>
+      )}
       <div className="text-center leading-tight">{fechaHora(datos.fecha)}</div>
       {cfg.mostrar_vendedor && datos.vendedor_numero != null && (
         <div className="text-center leading-tight">
@@ -85,18 +102,18 @@ export default function TicketTermico({
         {cfg.mostrar_telefono && datos.telefono && <Fila k="Tel." v={datos.telefono} />}
         {datos.ciudad && <Fila k="Ciudad" v={datos.ciudad} />}
         {datos.sorteo_nombre && <Fila k="Sorteo" v={datos.sorteo_nombre} />}
-        <Fila k="Cantidad" v={`${datos.cantidad}`} />
+        {!boleto && <Fila k="Cantidad" v={`${datos.cantidad}`} />}
         {datos.pago_metodo && <Fila k="Pago" v={datos.pago_metodo} />}
       </div>
 
-      {datos.cupones.length > 0 && (
+      {numeros.length > 0 && (
         <>
           <div className="my-1 border-t border-dashed border-black" />
           <div className="leading-tight">
-            <div className="font-bold">
-              {datos.cupones.length === 1 ? "Número" : "Números"}
+            <div className="font-bold">{numeros.length === 1 ? "Número" : "Números"}</div>
+            <div className="break-words font-bold" style={{ fontSize: boleto ? "1.6em" : undefined }}>
+              {numeros.join("  ")}
             </div>
-            <div className="break-words font-bold">{datos.cupones.join("  ")}</div>
           </div>
         </>
       )}
@@ -105,8 +122,15 @@ export default function TicketTermico({
 
       <div className="flex justify-between font-bold" style={{ fontSize: "1.25em" }}>
         <span>TOTAL</span>
-        <span>{gs(datos.monto)}</span>
+        <span>{gs(monto)}</span>
       </div>
+
+      {/* La compra entera, para poder atar los boletos sueltos a la venta que los generó. */}
+      {boleto && boleto.de > 1 && (
+        <div className="leading-tight">
+          Compra de {boleto.de} boletos · {gs(datos.monto)}
+        </div>
+      )}
 
       {cfg.pie && (
         <>
