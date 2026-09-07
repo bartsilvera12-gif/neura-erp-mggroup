@@ -79,9 +79,19 @@ import {
 } from "@/lib/chat/sorteo-close-eligibility";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import {
+  bucketForSaveField,
   describeFlowCaptureCompletenessForLogs,
+  loadFlowCaptureGraphContext,
   resolveEffectiveNodeCodeForFlowCompleteness,
 } from "@/lib/sorteos/sorteo-flow-capture-order";
+import {
+  CAMPO_PRECARGA_ESTADO,
+  CAMPO_PRECARGA_PENDIENTES,
+  leerDatosGuardadosPorTelefono,
+  leerPendientes,
+  planificarPrecargaDeDatos,
+  textoDatosReutilizados,
+} from "@/lib/chat/sorteo-datos-guardados";
 
 type ConversationFlowState = {
   id: string;
@@ -1707,6 +1717,122 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     }
   }
 
+  /** Un valor en `chat_flow_data` de la sesión activa. */
+  async function guardarCampoDeFlujo(input: {
+    empresaId: string;
+    conversationId: string;
+    flowCode: string;
+    flowSessionId: string;
+    campo: string;
+    valor: string;
+  }): Promise<void> {
+    await supabase.from("chat_flow_data").upsert(
+      {
+        empresa_id: input.empresaId,
+        conversation_id: input.conversationId,
+        flow_code: input.flowCode,
+        flow_session_id: input.flowSessionId,
+        field_name: input.campo,
+        field_value: input.valor,
+      },
+      { onConflict: "flow_session_id,field_name" }
+    );
+  }
+
+  /**
+   * Carga los datos de la compra anterior de este número, una sola vez por sesión.
+   *
+   * Se llama justo cuando el flujo va a preguntar el primer dato personal, no al arrancar la
+   * conversación: así el aviso de «ya tenemos tus datos» aparece en el momento en que le
+   * habríamos hecho la pregunta, y no suelto antes de que la persona diga siquiera cuántas
+   * boletas quiere.
+   *
+   * Devuelve el mapa de datos del flujo con lo precargado adentro. Si algo falla, devuelve lo
+   * que había: el flujo pregunta todo, como venía haciendo.
+   */
+  async function precargarDatosGuardadosDelComprador(input: {
+    empresaId: string;
+    conversationId: string;
+    flowCode: string;
+    flowSessionId: string;
+    telefono: string;
+    ctxSend: FlowSendContext;
+    flowData: Record<string, string>;
+  }): Promise<Record<string, string>> {
+    const fd = { ...input.flowData };
+    const guardar = (campo: string, valor: string) =>
+      guardarCampoDeFlujo({
+        empresaId: input.empresaId,
+        conversationId: input.conversationId,
+        flowCode: input.flowCode,
+        flowSessionId: input.flowSessionId,
+        campo,
+        valor,
+      });
+    /** La marca se escribe pase lo que pase: sin ella se reintentaría en cada mensaje. */
+    const marcarHecha = async () => {
+      await guardar(CAMPO_PRECARGA_ESTADO, "hecha");
+      fd[CAMPO_PRECARGA_ESTADO] = "hecha";
+    };
+
+    try {
+      /** Solo en flujos de sorteo: los datos salen de compras de sorteo. */
+      const sorteoId = await getSorteoIdForChatFlow(supabase, input.empresaId, input.flowCode);
+      if (!sorteoId) {
+        await marcarHecha();
+        return fd;
+      }
+
+      const datos = await leerDatosGuardadosPorTelefono(input.empresaId, input.telefono);
+      if (!datos) {
+        await marcarHecha();
+        return fd;
+      }
+
+      const ctxGrafo = await loadFlowCaptureGraphContext(supabase, input.empresaId, input.flowCode);
+      if (!ctxGrafo) {
+        await marcarHecha();
+        return fd;
+      }
+
+      const plan = planificarPrecargaDeDatos(ctxGrafo, fd, datos);
+      if (plan.pendientes.length === 0) {
+        await marcarHecha();
+        return fd;
+      }
+
+      for (const [campo, valor] of Object.entries(plan.valores)) {
+        await guardar(campo, valor);
+        fd[campo] = valor;
+      }
+      const pendientes = plan.pendientes.join(",");
+      await guardar(CAMPO_PRECARGA_PENDIENTES, pendientes);
+      fd[CAMPO_PRECARGA_PENDIENTES] = pendientes;
+      await marcarHecha();
+
+      /** Se le dice al comprador qué datos se están reusando, para que pueda corregirlos. */
+      await flowSendText(input.ctxSend, textoDatosReutilizados(datos));
+
+      console.info("[sorteo-datos-guardados] precarga_aplicada", {
+        conversation_id: input.conversationId,
+        flow_session_id: input.flowSessionId,
+        campos: plan.pendientes,
+      });
+      return fd;
+    } catch (e) {
+      console.warn(
+        "[sorteo-datos-guardados] precarga_fallida",
+        e instanceof Error ? e.message : e
+      );
+      try {
+        await marcarHecha();
+      } catch {
+        /* Si ni la marca se puede escribir, el flujo sigue preguntando todo. */
+      }
+      return fd;
+    }
+  }
+
   async function sendCurrentFlowNodeImpl(
     params: SendCurrentNodeParams
   ): Promise<{ ok: boolean; nodeCode?: string; error?: string }> {
@@ -1784,6 +1910,71 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         },
       });
       return sendCurrentFlowNode({ ...params, __autoHop: currentHop });
+    }
+
+    /**
+     * ---- El comprador que vuelve ----
+     *
+     * Si esta persona ya compró desde el mismo número, sus datos se cargan de su última compra
+     * y el flujo no le vuelve a preguntar nombre, cédula ni ciudad.
+     *
+     * Cada campo precargado se saltea UNA sola vez y sale de la lista de pendientes. Eso es lo
+     * que mantiene vivo el «corregir datos»: al volver atrás, el campo ya no está en la lista y
+     * la pregunta se hace normalmente, en vez de saltearse de nuevo y dejar a la persona
+     * girando en el mismo paso.
+     */
+    const campoDelNodo = (node.save_as_field ?? "").trim();
+    const bucketDelNodo = campoDelNodo ? bucketForSaveField(campoDelNodo) : "other";
+    const esCapturaPersonal =
+      node.node_type === "text" &&
+      (bucketDelNodo === "nombre" ||
+        bucketDelNodo === "apellido" ||
+        bucketDelNodo === "cedula" ||
+        bucketDelNodo === "ciudad");
+
+    if (esCapturaPersonal) {
+      let fdPrecarga = hydFdPointer;
+      if (String(fdPrecarga[CAMPO_PRECARGA_ESTADO] ?? "").trim() !== "hecha") {
+        fdPrecarga = await precargarDatosGuardadosDelComprador({
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code,
+          flowSessionId: sidGate,
+          telefono: "toDigits" in ctxSend ? String(ctxSend.toDigits ?? "") : "",
+          ctxSend,
+          flowData: fdPrecarga,
+        });
+      }
+
+      const pendientes = leerPendientes(fdPrecarga);
+      const siguiente = (node.next_node_code ?? "").trim();
+      if (pendientes.includes(campoDelNodo) && siguiente) {
+        await guardarCampoDeFlujo({
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code,
+          flowSessionId: sidGate,
+          campo: CAMPO_PRECARGA_PENDIENTES,
+          valor: pendientes.filter((c) => c !== campoDelNodo).join(","),
+        });
+        await insertFlowEvent({
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code,
+          nodeCode: state.flow_current_node,
+          flowSessionId: sidGate,
+          eventType: "capture_skipped_datos_guardados",
+          payload: { save_as_field: campoDelNodo, next_node_code: siguiente },
+        });
+        const advSalto = await advanceConversationToNode({
+          conversationId: state.id,
+          empresaId: state.empresa_id,
+          flowCode: state.flow_code,
+          nextNodeCode: siguiente,
+        });
+        if (!advSalto.ok) return { ok: false, error: advSalto.error ?? "advance_failed" };
+        return sendCurrentFlowNode({ ...params, __autoHop: currentHop + 1 });
+      }
     }
 
     const flowVarsBase = await getConversationFlowDataMap({

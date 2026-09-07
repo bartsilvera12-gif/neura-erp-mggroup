@@ -28,7 +28,7 @@ const APELLIDO_KEYS = new Set(["apellido", "primer_apellido", "apellidos"]);
 
 const CIUDAD_KEYS = new Set(["ciudad", "localidad", "ubicacion", "ubicación"]);
 
-function bucketForSaveField(saveAs: string): "cedula" | "nombre" | "apellido" | "ciudad" | "other" {
+export function bucketForSaveField(saveAs: string): "cedula" | "nombre" | "apellido" | "ciudad" | "other" {
   const s = normalizeFlowFieldKey(saveAs);
   if (!s) return "other";
   if (CEDULA_KEYS.has(s) || /documento|cedula|^ci$|dni|ruc|numero_document|nro_document/.test(s)) {
@@ -199,7 +199,7 @@ export type FlowCaptureGraphContext = {
   nodesByCode: Map<string, FlowNodeRowLite>;
 };
 
-async function loadFlowCaptureGraphContext(
+export async function loadFlowCaptureGraphContext(
   supabase: AppSupabaseClient,
   empresaId: string,
   flowCode: string
