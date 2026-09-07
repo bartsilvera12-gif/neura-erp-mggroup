@@ -445,25 +445,24 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
     }
   }
 
-  // --- OCR (siempre se intenta si el hash no está duplicado; PDF sin API async → fallo controlado) ---
-  const mime = (ctx.mimeType || "").toLowerCase();
-  const isPdf = mime.includes("pdf");
+  /**
+   * OCR. Los PDF pasan por acá igual que las imágenes: `runGoogleVisionDocumentOcr` los manda
+   * al endpoint de documentos de Vision. Antes se los salteaba a propósito —cuando el OCR solo
+   * sabía leer imágenes— y todo comprobante en PDF terminaba en revisión manual, que es lo que
+   * el cliente reportó: manda el PDF del homebanking y no le sale la boleta.
+   */
   let fullText = "";
   let ocrFailedReason: string | null = null;
 
-  if (!isPdf) {
-    if (ctx.ocrTextOverride !== undefined && ctx.ocrTextOverride !== null) {
-      fullText = ctx.ocrTextOverride;
-    } else {
-      try {
-        const r = await runGoogleVisionDocumentOcr(ctx.bytes, ctx.mimeType);
-        fullText = r.fullText;
-      } catch (e) {
-        ocrFailedReason = e instanceof Error ? e.message : "ocr_error";
-      }
-    }
+  if (ctx.ocrTextOverride !== undefined && ctx.ocrTextOverride !== null) {
+    fullText = ctx.ocrTextOverride;
   } else {
-    ocrFailedReason = "pdf_sin_ocr_automatico";
+    try {
+      const r = await runGoogleVisionDocumentOcr(ctx.bytes, ctx.mimeType);
+      fullText = r.fullText;
+    } catch (e) {
+      ocrFailedReason = e instanceof Error ? e.message : "ocr_error";
+    }
   }
 
   const ocrInsuficiente = !fullText.trim() || Boolean(ocrFailedReason);
