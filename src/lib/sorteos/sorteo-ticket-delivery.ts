@@ -448,18 +448,53 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       templateMime: templateDl?.mime ?? null,
     };
 
-    const { png, hash } = await renderTicketPngUnified(renderInput);
-    const genPath = sorteoTicketGeneratedPath(empresaId, sorteoId, entradaId, templateRevision);
-    const up = await uploadGeneratedTicketPng(supabase, genPath, png);
-    if (up.error) {
-      throw new Error(up.error);
+    /*
+     * Un comprobante por numero comprado.
+     *
+     * El comprobante es lo que la persona guarda o le pasa a quien le regalo el boleto, y en
+     * una sola imagen con los cinco numeros juntos eso no se puede hacer. Por eso se manda una
+     * foto por boleto.
+     *
+     * Arriba del tope se vuelve a una sola imagen con todos los numeros. Mandar cincuenta fotos
+     * seguidas al mismo chat tarda un rato largo y es la clase de rafaga que hace que Meta
+     * marque el numero; una compra de ese tamano es rara y prefiero que llegue algo antes que
+     * arriesgar la linea.
+     */
+    const MAX_COMPROBANTES_POR_COMPRA = 20;
+    const numerosCompra = normalized.cupones.filter((c) => String(c).trim());
+    const unaFotoPorBoleto =
+      numerosCompra.length > 1 && numerosCompra.length <= MAX_COMPROBANTES_POR_COMPRA;
+    const grupos: string[][] = unaFotoPorBoleto
+      ? numerosCompra.map((n) => [n])
+      : [normalized.cupones];
+
+    console.info("[sorteo-ticket] comprobantes_a_generar", {
+      deliveryId: rowId,
+      boletos: numerosCompra.length,
+      imagenes: grupos.length,
+      una_por_boleto: unaFotoPorBoleto,
+    });
+
+    const hojas: { genPath: string; hash: string; numero: string; n: number }[] = [];
+    for (const [i, grupo] of grupos.entries()) {
+      const { png, hash } = await renderTicketPngUnified({ ...renderInput, cupones: grupo });
+      /** Sufijo por boleto: si no, cada imagen pisaria a la anterior en el Storage. */
+      const base = sorteoTicketGeneratedPath(empresaId, sorteoId, entradaId, templateRevision);
+      const genPath = unaFotoPorBoleto ? base.replace(/\.png$/, `-${i + 1}.png`) : base;
+      const up = await uploadGeneratedTicketPng(supabase, genPath, png);
+      if (up.error) {
+        throw new Error(up.error);
+      }
+      console.info("[sorteo-ticket] storage_uploaded", {
+        bucket: SORTEO_TICKET_GENERATED_BUCKET,
+        storage_path: genPath,
+        deliveryId: rowId,
+      });
+      hojas.push({ genPath, hash, numero: grupo.join(", "), n: i + 1 });
     }
 
-    console.info("[sorteo-ticket] storage_uploaded", {
-      bucket: SORTEO_TICKET_GENERATED_BUCKET,
-      storage_path: genPath,
-      deliveryId: rowId,
-    });
+    /** La fila de entrega guarda la primera imagen: es la que se usa para reenviar y auditar. */
+    const genPath = hojas[0].genPath;
 
     await db
       .from("sorteo_ticket_deliveries")
@@ -467,7 +502,7 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
         status: "generated",
         storage_bucket: "sorteo-tickets-generated",
         storage_path: genPath,
-        png_bytes_hash: hash,
+        png_bytes_hash: hojas[0].hash,
         generated_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -477,6 +512,7 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       deliveryId: rowId,
       status: "generated",
       storage_path: genPath,
+      imagenes: hojas.length,
     });
 
     if (input.skipWhatsApp) {
@@ -508,16 +544,6 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       };
     }
 
-    const signed = await createSignedUrlForTicket(supabase, genPath, 600);
-    if (!signed.url) {
-      throw new Error(signed.error ?? "signed_url");
-    }
-
-    console.info("[sorteo-ticket] signed_url_created", {
-      deliveryId: rowId,
-      hasUrl: true,
-    });
-
     let outbound: Awaited<ReturnType<typeof resolveOutboundTextContextFromIds>>;
     try {
       outbound = await resolveOutboundTextContextFromIds(
@@ -541,45 +567,87 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       contactId: input.contactId,
     });
 
-    let sendResult: { ok: boolean; waMessageId?: string | null; raw?: unknown; error?: string };
-    if (outbound.provider === "ycloud") {
-      sendResult = await sendYCloudWhatsappMediaViaLink({
-        apiKey: outbound.apiKey,
-        fromE164: outbound.fromE164,
-        toDigits: outbound.toDigits,
-        kind: "image",
-        mediaLink: signed.url,
-        caption,
-      });
-    } else {
-      sendResult = await sendWhatsAppImage({
-        toDigits: outbound.toDigits,
-        phoneNumberId: outbound.phoneNumberId,
-        accessToken: outbound.accessToken,
-        imageUrl: signed.url,
-        caption,
-      });
-    }
+    let sendResult: { ok: boolean; waMessageId?: string | null; raw?: unknown; error?: string } = {
+      ok: false,
+      error: "sin_imagenes",
+    };
+    let waId: string | null = null;
 
-    if (!sendResult.ok) {
-      console.warn("[sorteo-ticket] whatsapp_send_error", {
+    for (const hoja of hojas) {
+      const signed = await createSignedUrlForTicket(supabase, hoja.genPath, 600);
+      if (!signed.url) {
+        throw new Error(signed.error ?? "signed_url");
+      }
+      console.info("[sorteo-ticket] signed_url_created", {
         deliveryId: rowId,
-        provider: outbound.provider,
-        error: sendResult.error ?? "send_failed",
+        hasUrl: true,
+        imagen: hoja.n,
       });
-      throw new Error(sendResult.error ?? "send_failed");
+
+      /** Con varias fotos, cada una dice de cuál boleto es; con una sola, el pie de siempre. */
+      const pie =
+        hojas.length > 1
+          ? `${caption} — Boleto ${hoja.n} de ${hojas.length} · N.º ${hoja.numero}`.slice(0, 1024)
+          : caption;
+
+      if (outbound.provider === "ycloud") {
+        sendResult = await sendYCloudWhatsappMediaViaLink({
+          apiKey: outbound.apiKey,
+          fromE164: outbound.fromE164,
+          toDigits: outbound.toDigits,
+          kind: "image",
+          mediaLink: signed.url,
+          caption: pie,
+        });
+      } else {
+        sendResult = await sendWhatsAppImage({
+          toDigits: outbound.toDigits,
+          phoneNumberId: outbound.phoneNumberId,
+          accessToken: outbound.accessToken,
+          imageUrl: signed.url,
+          caption: pie,
+        });
+      }
+
+      if (!sendResult.ok) {
+        console.warn("[sorteo-ticket] whatsapp_send_error", {
+          deliveryId: rowId,
+          provider: outbound.provider,
+          imagen: hoja.n,
+          de: hojas.length,
+          error: sendResult.error ?? "send_failed",
+        });
+        /*
+         * Si falla una del medio, se corta acá. Las anteriores ya llegaron y la venta está
+         * hecha: la fila queda en error con el detalle, para poder reenviar desde el inbox.
+         */
+        throw new Error(sendResult.error ?? "send_failed");
+      }
+
+      console.info("[sorteo-ticket] whatsapp_send_ok", {
+        deliveryId: rowId,
+        whatsapp_message_id: sendResult.waMessageId ?? null,
+        provider: outbound.provider,
+        imagen: hoja.n,
+        de: hojas.length,
+      });
+
+      if (typeof sendResult.waMessageId === "string" && sendResult.waMessageId) {
+        waId = sendResult.waMessageId;
+      }
+
+      if (conversationId?.trim()) {
+        await persistOutgoingChatMessage(supabase, {
+          conversation: { id: conversationId.trim(), empresa_id: empresaId },
+          content: pie ? `Ticket imagen\n${pie}` : "Ticket imagen enviado",
+          messageType: "image",
+          waMessageId: sendResult.waMessageId ?? null,
+          raw: sendResult.raw ?? {},
+          senderType: "system",
+          automationSource: "sorteo_ticket",
+        });
+      }
     }
-
-    console.info("[sorteo-ticket] whatsapp_send_ok", {
-      deliveryId: rowId,
-      whatsapp_message_id: sendResult.waMessageId ?? null,
-      provider: outbound.provider,
-    });
-
-    const waId =
-      typeof sendResult.waMessageId === "string" && sendResult.waMessageId
-        ? sendResult.waMessageId
-        : null;
 
     await db
       .from("sorteo_ticket_deliveries")
@@ -599,18 +667,6 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       whatsapp_message_id: waId,
       provider: outbound.provider,
     });
-
-    if (conversationId?.trim()) {
-      await persistOutgoingChatMessage(supabase, {
-        conversation: { id: conversationId.trim(), empresa_id: empresaId },
-        content: caption ? `Ticket imagen\n${caption}` : "Ticket imagen enviado",
-        messageType: "image",
-        waMessageId: waId,
-        raw: sendResult.raw ?? {},
-        senderType: "system",
-        automationSource: "sorteo_ticket",
-      });
-    }
 
     return {
       ok: true,
