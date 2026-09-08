@@ -329,10 +329,13 @@ export async function resolveEffectiveNodeCodeForFlowCompleteness(
   empresaId: string,
   flowCode: string,
   flowData: Record<string, string>,
-  proposedNodeCode: string
+  proposedNodeCode: string,
+  /** Grafo ya cargado. Evita releer nodos y opciones en cada paso del mismo mensaje. */
+  ctxPrecargado?: FlowCaptureGraphContext | null
 ): Promise<ResolveFlowCompletenessResult> {
   const proposed = norm(proposedNodeCode);
-  const ctx = await loadFlowCaptureGraphContext(supabase, empresaId, flowCode);
+  const ctx =
+    ctxPrecargado ?? (await loadFlowCaptureGraphContext(supabase, empresaId, flowCode));
   if (!ctx) {
     return {
       effectiveNodeCode: proposed,
@@ -410,13 +413,15 @@ export async function describeFlowCaptureCompletenessForLogs(
   supabase: AppSupabaseClient,
   empresaId: string,
   flowCode: string,
-  flowData: Record<string, string>
+  flowData: Record<string, string>,
+  ctxPrecargado?: FlowCaptureGraphContext | null
 ): Promise<{
   required_fields: string[];
   missing_fields: string[];
   firstIncomplete: FindIncompleteCaptureResult | null;
 } | null> {
-  const ctx = await loadFlowCaptureGraphContext(supabase, empresaId, flowCode);
+  const ctx =
+    ctxPrecargado ?? (await loadFlowCaptureGraphContext(supabase, empresaId, flowCode));
   if (!ctx) return null;
   return {
     required_fields: listOrderedCaptureFieldDescriptors(ctx),

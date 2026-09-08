@@ -84,6 +84,7 @@ import {
   isParticipantSummaryReviewNode,
   loadFlowCaptureGraphContext,
   resolveEffectiveNodeCodeForFlowCompleteness,
+  type FlowCaptureGraphContext,
 } from "@/lib/sorteos/sorteo-flow-capture-order";
 import {
   BOTONES_DATOS_GUARDADOS,
@@ -520,6 +521,42 @@ function interactiveReplyMatchesPurchaseIntent(rawPayload: Record<string, unknow
 
 export function createFlowEngine(ctx: FlowEngineContext) {
   const supabase = ctx.supabase;
+
+  /*
+   * Cachés que viven lo que vive este motor, o sea un mensaje entrante.
+   *
+   * El grafo del flujo y el sorteo vinculado se releían en cada paso: el control de datos
+   * completos los pide, el envío del nodo también, y cuando se saltean cuatro preguntas seguidas
+   * eso se repite cuatro veces. Son datos de configuración que no cambian en medio de un
+   * mensaje, asi que leerlos una vez alcanza.
+   *
+   * Se guarda la promesa, no el resultado: si dos partes los piden a la vez, sale una sola
+   * consulta.
+   */
+  const cacheGrafo = new Map<string, Promise<FlowCaptureGraphContext | null>>();
+  function grafoDeCapturas(
+    empresaId: string,
+    flowCode: string
+  ): Promise<FlowCaptureGraphContext | null> {
+    const clave = `${empresaId}|${flowCode}`;
+    let p = cacheGrafo.get(clave);
+    if (!p) {
+      p = loadFlowCaptureGraphContext(supabase, empresaId, flowCode);
+      cacheGrafo.set(clave, p);
+    }
+    return p;
+  }
+
+  const cacheSorteo = new Map<string, Promise<string | null>>();
+  function sorteoDelFlujo(empresaId: string, flowCode: string): Promise<string | null> {
+    const clave = `${empresaId}|${flowCode}`;
+    let p = cacheSorteo.get(clave);
+    if (!p) {
+      p = getSorteoIdForChatFlow(supabase, empresaId, flowCode);
+      cacheSorteo.set(clave, p);
+    }
+    return p;
+  }
 
   async function getConversationFlowState(
     conversationId: string
@@ -1301,19 +1338,22 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       flowSessionId: input.flowSessionId,
       mergeFlowVars: input.mergeFlowVars,
     });
+    const grafoGate = await grafoDeCapturas(input.empresaId, input.flowCode);
     const resolved = await resolveEffectiveNodeCodeForFlowCompleteness(
       supabase,
       input.empresaId,
       input.flowCode,
       hydFd,
-      input.proposedNextCode
+      input.proposedNextCode,
+      grafoGate
     );
     if (resolved.redirected) {
       const desc = await describeFlowCaptureCompletenessForLogs(
         supabase,
         input.empresaId,
         input.flowCode,
-        hydFd
+        hydFd,
+        grafoGate
       );
       console.info("[sorteo-close][required-fields-check]", {
         conversation_id: input.conversationId,
@@ -1857,7 +1897,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
 
     try {
       /** Solo en flujos de sorteo: los datos salen de compras de sorteo. */
-      const sorteoId = await getSorteoIdForChatFlow(supabase, input.empresaId, input.flowCode);
+      const sorteoId = await sorteoDelFlujo(input.empresaId, input.flowCode);
       if (!sorteoId) {
         return { flowData: fd, preguntoAhora: false };
       }
@@ -1867,7 +1907,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         return { flowData: fd, preguntoAhora: false };
       }
 
-      const ctxGrafo = await loadFlowCaptureGraphContext(supabase, input.empresaId, input.flowCode);
+      const ctxGrafo = await grafoDeCapturas(input.empresaId, input.flowCode);
       if (!ctxGrafo) {
         return { flowData: fd, preguntoAhora: false };
       }
@@ -1957,12 +1997,14 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       flowSessionId: sidGate,
       mergeFlowVars: params.mergeFlowVars,
     });
+    const grafoPuntero = await grafoDeCapturas(state.empresa_id, state.flow_code);
     const ptrResolved = await resolveEffectiveNodeCodeForFlowCompleteness(
       supabase,
       state.empresa_id,
       state.flow_code,
       hydFdPointer,
-      state.flow_current_node
+      state.flow_current_node,
+      grafoPuntero
     );
     if (
       ptrResolved.redirected &&
@@ -1972,7 +2014,8 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         supabase,
         state.empresa_id,
         state.flow_code,
-        hydFdPointer
+        hydFdPointer,
+        grafoPuntero
       );
       console.info("[sorteo-close][required-fields-check]", {
         conversation_id: state.id,
@@ -2110,11 +2153,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         next_node_code: node.next_node_code,
       })
     ) {
-      const ctxGrafoResumen = await loadFlowCaptureGraphContext(
-        supabase,
-        state.empresa_id,
-        state.flow_code
-      );
+      const ctxGrafoResumen = await grafoDeCapturas(state.empresa_id, state.flow_code);
       const opciones = await getNodeOptions(node.id);
       const elegida = ctxGrafoResumen
         ? opcionQueAvanza(ctxGrafoResumen.order, node.node_code, opciones)
@@ -2883,11 +2922,7 @@ ${texto}` : prefijo;
       },
     });
 
-    const sorteoLinked = await getSorteoIdForChatFlow(
-      supabase,
-      state.empresa_id,
-      state.flow_code as string
-    );
+    const sorteoLinked = await sorteoDelFlujo(state.empresa_id, state.flow_code as string);
     /** Cierre de compra sorteo: no escribir en chat_flow_data ni re-ejecutar contrato comercial (evita pisar snapshots con el label del botón, ej. "Confirmado"). */
     const isSorteoFinalizeClick =
       Boolean(sorteoLinked) && optionPayloadFinalizesSorteoOrder(selected.option_payload);
@@ -4800,7 +4835,7 @@ ${texto}` : prefijo;
         keys: Object.keys(hydFdImg).sort(),
       });
 
-      const sorteoIdPre = await getSorteoIdForChatFlow(supabase, state.empresa_id, state.flow_code as string);
+      const sorteoIdPre = await sorteoDelFlujo(state.empresa_id, state.flow_code as string);
 
       console.info(FLOW_SORTEO_LOG, "[order-create]", "[start]", {
         conversation_id: state.id,
