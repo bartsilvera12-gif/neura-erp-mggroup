@@ -214,21 +214,21 @@ console.log("\nCuál botón del resumen sigue para adelante");
     "compra_realizada",
   ];
   const opciones = [
-    { next_node_code: "compra_realizada", sort_order: 1 },
-    { next_node_code: "verificacion", sort_order: 2 },
+    { meta_button_id: "btn_ok", next_node_code: "compra_realizada", sort_order: 1 },
+    { meta_button_id: "btn_corregir", next_node_code: "verificacion", sort_order: 2 },
   ];
   chequear(
     "elige el que confirma, no el de corregir",
-    opcionQueAvanza(orden, "comprobacion_datos", opciones) === "compra_realizada"
+    opcionQueAvanza(orden, "comprobacion_datos", opciones)?.destino === "compra_realizada"
   );
   chequear(
-    "no depende de en qué orden estén los botones",
-    opcionQueAvanza(orden, "comprobacion_datos", [...opciones].reverse()) === "compra_realizada"
+    "devuelve el id del botón que confirma",
+    opcionQueAvanza(orden, "comprobacion_datos", [...opciones].reverse())?.metaButtonId === "btn_ok"
   );
   chequear(
     "si las dos vuelven atrás, no saltea nada",
     opcionQueAvanza(orden, "comprobacion_datos", [
-      { next_node_code: "verificacion", sort_order: 1 },
+      { meta_button_id: "btn_corregir", next_node_code: "verificacion", sort_order: 1 },
     ]) === null
   );
   chequear("sin opciones, no saltea", opcionQueAvanza(orden, "comprobacion_datos", []) === null);
@@ -239,7 +239,13 @@ console.log("\nCuál botón del resumen sigue para adelante");
   chequear(
     "ignora destinos que no existen",
     opcionQueAvanza(orden, "comprobacion_datos", [
-      { next_node_code: "fantasma", sort_order: 1 },
+      { meta_button_id: "btn_x", next_node_code: "fantasma", sort_order: 1 },
+    ]) === null
+  );
+  chequear(
+    "sin id de botón no saltea",
+    opcionQueAvanza(orden, "comprobacion_datos", [
+      { next_node_code: "compra_realizada", sort_order: 1 },
     ]) === null
   );
 }

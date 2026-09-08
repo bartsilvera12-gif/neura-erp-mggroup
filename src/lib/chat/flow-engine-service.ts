@@ -2116,10 +2116,11 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         state.flow_code
       );
       const opciones = await getNodeOptions(node.id);
-      const siguienteResumen = ctxGrafoResumen
+      const elegida = ctxGrafoResumen
         ? opcionQueAvanza(ctxGrafoResumen.order, node.node_code, opciones)
         : null;
-      if (siguienteResumen) {
+      if (elegida) {
+        /** Se marca antes de contestar: si no, la respuesta simulada volvería a entrar acá. */
         await guardarCampoDeFlujo({
           empresaId: state.empresa_id,
           conversationId: state.id,
@@ -2135,16 +2136,26 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           nodeCode: node.node_code,
           flowSessionId: sidGate,
           eventType: "resumen_datos_salteado",
-          payload: { next_node_code: siguienteResumen, reason: "datos_ya_confirmados" },
+          metaButtonId: elegida.metaButtonId,
+          payload: { next_node_code: elegida.destino, reason: "datos_ya_confirmados" },
         });
-        const advResumen = await advanceConversationToNode({
+        /*
+         * Se contesta el botón por la persona, en vez de mover el puntero a mano.
+         *
+         * Mover el puntero saltea también todo lo que cuelga de esa respuesta —entre otras
+         * cosas, el envío del comprobante por WhatsApp, que se dispara ahí—. El comprador
+         * recibía el mensaje final «tu participación fue registrada» y ninguna boleta.
+         */
+        const respuesta = await processInteractiveReply({
           conversationId: state.id,
           empresaId: state.empresa_id,
-          flowCode: state.flow_code,
-          nextNodeCode: siguienteResumen,
+          metaButtonId: elegida.metaButtonId,
+          rawPayload: { simulado_por: "datos_guardados_confirmados" },
         });
-        if (!advResumen.ok) return { ok: false, error: advResumen.error ?? "advance_failed" };
-        return sendCurrentFlowNode({ ...params, __autoHop: currentHop + 1 });
+        if (!respuesta.ok) {
+          return { ok: false, error: respuesta.error ?? "resumen_salteado_fallo" };
+        }
+        return { ok: true, nodeCode: elegida.destino };
       }
       console.info("[sorteo-datos-guardados] resumen_no_salteado", {
         conversation_id: state.id,

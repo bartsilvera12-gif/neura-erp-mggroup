@@ -270,25 +270,34 @@ export function textoDatosReutilizados(datos: DatosGuardadosComprador): string {
  * anterior. Devuelve null si ninguna avanza, y en ese caso el paso se muestra como siempre:
  * ante la duda, preguntar de más es mucho menos grave que saltear el cierre de la compra.
  */
+export type OpcionDeFlujo = {
+  meta_button_id?: string | null;
+  next_node_code?: string | null;
+  sort_order?: number | null;
+};
+
 export function opcionQueAvanza(
   ordenDelFlujo: string[],
   nodoActual: string,
-  opciones: Array<{ next_node_code?: string | null; sort_order?: number | null }>
-): string | null {
+  opciones: OpcionDeFlujo[]
+): { destino: string; metaButtonId: string } | null {
   const iActual = ordenDelFlujo.findIndex((c) => c.trim() === nodoActual.trim());
   if (iActual < 0) return null;
 
   const candidatas = opciones
     .map((o) => ({
       destino: (o.next_node_code ?? "").trim(),
+      metaButtonId: (o.meta_button_id ?? "").trim(),
       orden: o.sort_order ?? Number.MAX_SAFE_INTEGER,
     }))
-    .filter((o) => o.destino)
+    /** Sin id de botón no se puede simular la respuesta, y saltear sin simularla rompe el envío. */
+    .filter((o) => o.destino && o.metaButtonId)
     .map((o) => ({ ...o, i: ordenDelFlujo.findIndex((c) => c.trim() === o.destino) }))
     .filter((o) => o.i > iActual)
     .sort((a, b) => a.orden - b.orden);
 
-  return candidatas[0]?.destino ?? null;
+  const elegida = candidatas[0];
+  return elegida ? { destino: elegida.destino, metaButtonId: elegida.metaButtonId } : null;
 }
 
 export function leerPendientes(flowData: Record<string, string>): string[] {
