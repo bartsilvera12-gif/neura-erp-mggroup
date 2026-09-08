@@ -48,6 +48,7 @@ const DATOS: DatosGuardadosComprador = {
   nombre: "María Fernanda Villalba",
   documento: "4567890",
   ciudad: "Encarnación",
+  telefono: "0981123456",
 };
 
 console.log("\nUn flujo con nombre completo, cédula y ciudad");
@@ -57,15 +58,17 @@ console.log("\nUn flujo con nombre completo, cédula y ciudad");
     { node_code: "nombre", save_as_field: "nombre_completo" },
     { node_code: "cedula", save_as_field: "cedula" },
     { node_code: "ciudad", save_as_field: "ciudad" },
+    { node_code: "telefono", save_as_field: "telefono" },
     { node_code: "pago", node_type: "text" },
   ]);
   const plan = planificarPrecargaDeDatos(ctx, {}, DATOS);
   chequear("usa las claves del flujo", plan.valores.nombre_completo === "María Fernanda Villalba", plan.valores);
   chequear("carga la cédula", plan.valores.cedula === "4567890", plan.valores);
   chequear("carga la ciudad", plan.valores.ciudad === "Encarnación", plan.valores);
+  chequear("carga el teléfono", plan.valores.telefono === "0981123456", plan.valores);
   chequear(
     "los pendientes van en orden de flujo",
-    plan.pendientes.join(",") === "nombre_completo,cedula,ciudad",
+    plan.pendientes.join(",") === "nombre_completo,cedula,ciudad,telefono",
     plan.pendientes
   );
   chequear("no toca nodos sin save_as_field", plan.valores.pago === undefined, plan.valores);
@@ -159,6 +162,21 @@ console.log("\nQué se pregunta según lo que conteste el comprador");
   chequear(
     "si pide cargar otros, se le pregunta todo",
     recorrer(pidioCambiar).join(",") === "nombre_completo,cedula,ciudad"
+  );
+}
+
+console.log("\nEl teléfono se reconoce con cualquiera de sus nombres");
+{
+  for (const campo of ["telefono", "celular", "cel", "whatsapp", "numero_telefono"]) {
+    const ctx = grafo([{ node_code: "t", save_as_field: campo }]);
+    const plan = planificarPrecargaDeDatos(ctx, {}, DATOS);
+    chequear(`«${campo}»`, plan.valores[campo] === "0981123456", plan.valores);
+  }
+  /** Un campo que no es de datos personales no se toca. */
+  const otro = grafo([{ node_code: "x", save_as_field: "comentario" }]);
+  chequear(
+    "un campo cualquiera queda afuera",
+    planificarPrecargaDeDatos(otro, {}, DATOS).pendientes.length === 0
   );
 }
 

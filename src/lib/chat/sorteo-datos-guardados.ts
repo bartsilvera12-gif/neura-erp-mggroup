@@ -47,7 +47,42 @@ export type DatosGuardadosComprador = {
   nombre: string;
   documento: string;
   ciudad: string;
+  telefono: string;
 };
+
+/**
+ * Claves con las que un flujo puede guardar el teléfono.
+ *
+ * Va acá y no en `bucketForSaveField` a propósito: esa función la usa además el control de
+ * capturas completas del flujo, y meterle un bucket nuevo cambiaría cuándo considera que un
+ * paso ya está contestado. Este módulo solo necesita saber a qué campo escribirle.
+ */
+const CLAVES_TELEFONO = new Set([
+  "telefono",
+  "teléfono",
+  "celular",
+  "cel",
+  "whatsapp",
+  "nro_telefono",
+  "numero_telefono",
+  "phone",
+]);
+
+function esCampoTelefono(campo: string): boolean {
+  const c = campo.trim().toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+  return CLAVES_TELEFONO.has(c) || c.includes("telefono") || c.includes("celular");
+}
+
+/** ¿Este paso pide un dato personal que podemos tener de antes? */
+export function esCapturaDeDatoPersonal(campo: string, bucket: string): boolean {
+  return (
+    bucket === "nombre" ||
+    bucket === "apellido" ||
+    bucket === "cedula" ||
+    bucket === "ciudad" ||
+    esCampoTelefono(campo)
+  );
+}
 
 /** Los últimos 8 dígitos: el mismo número se guarda como 0981… o como 59598l… según de dónde venga. */
 function ultimosDigitos(telefono: string): string {
@@ -82,9 +117,11 @@ export async function leerDatosGuardadosPorTelefono(
       nombre: string | null;
       documento: string | null;
       ciudad: string | null;
+      telefono: string | null;
     }>(
       `SELECT e.nombre_participante AS nombre,
               e.documento,
+              e.whatsapp_numero AS telefono,
               COALESCE(
                 NULLIF(TRIM(to_jsonb(e) ->> 'ciudad'), ''),
                 (SELECT NULLIF(TRIM(fd.field_value), '')
@@ -113,6 +150,7 @@ export async function leerDatosGuardadosPorTelefono(
       nombre: (row.nombre ?? "").trim(),
       documento: (row.documento ?? "").trim(),
       ciudad: (row.ciudad ?? "").trim(),
+      telefono: (row.telefono ?? "").trim(),
     };
     return datos.nombre ? datos : null;
   } catch (e) {
@@ -185,7 +223,8 @@ export function planificarPrecargaDeDatos(
         valor = datos.ciudad;
         break;
       default:
-        valor = "";
+        /** El teléfono no tiene bucket propio; se reconoce por el nombre del campo. */
+        valor = esCampoTelefono(campo) ? datos.telefono : "";
     }
     if (!valor.trim()) continue;
 
@@ -201,10 +240,11 @@ export function textoDatosReutilizados(datos: DatosGuardadosComprador): string {
   const lineas = [`👤 ${datos.nombre}`];
   if (datos.documento) lineas.push(`🪪 ${datos.documento}`);
   if (datos.ciudad) lineas.push(`📍 ${datos.ciudad}`);
+  if (datos.telefono) lineas.push(`📱 ${datos.telefono}`);
   return (
     "Estos son tus datos de tu compra anterior:\n\n" +
     lineas.join("\n") +
-    "\n\n¿Seguimos con estos datos?"
+    "\n\n¿Querés usarlos otra vez?"
   );
 }
 

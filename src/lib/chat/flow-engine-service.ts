@@ -89,6 +89,7 @@ import {
   CAMPO_PRECARGA_CONFIRMADA,
   CAMPO_PRECARGA_ESTADO,
   CAMPO_PRECARGA_PENDIENTES,
+  esCapturaDeDatoPersonal,
   leerDatosGuardadosPorTelefono,
   leerPendientes,
   planificarPrecargaDeDatos,
@@ -1826,35 +1827,51 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         campo,
         valor,
       });
-    /** La marca se escribe pase lo que pase: sin ella se reintentaría en cada mensaje. */
-    const marcarHecha = async () => {
-      await guardar(CAMPO_PRECARGA_ESTADO, "hecha");
-      fd[CAMPO_PRECARGA_ESTADO] = "hecha";
-    };
+    /*
+     * La marca se escribe ANTES de mirar nada, y con `insert`, no con `upsert`.
+     *
+     * Es una reserva: si dos llamadas entran juntas —el motor puede volver a presentar el paso
+     * mientras la primera todavía está trabajando— las dos leerían los datos del flujo sin la
+     * marca y las dos mandarían la pregunta. Al comprador le llegaba dos veces. Con `insert`, la
+     * segunda choca contra la clave única de (flow_session_id, field_name) y se va sin mandar
+     * nada.
+     */
+    const { error: yaReservado } = await supabase.from("chat_flow_data").insert({
+      empresa_id: input.empresaId,
+      conversation_id: input.conversationId,
+      flow_code: input.flowCode,
+      flow_session_id: input.flowSessionId,
+      field_name: CAMPO_PRECARGA_ESTADO,
+      field_value: "hecha",
+    });
+    if (yaReservado) {
+      console.info("[sorteo-datos-guardados] precarga_ya_reservada", {
+        conversation_id: input.conversationId,
+        flow_session_id: input.flowSessionId,
+      });
+      return { flowData: fd, preguntoAhora: false };
+    }
+    fd[CAMPO_PRECARGA_ESTADO] = "hecha";
 
     try {
       /** Solo en flujos de sorteo: los datos salen de compras de sorteo. */
       const sorteoId = await getSorteoIdForChatFlow(supabase, input.empresaId, input.flowCode);
       if (!sorteoId) {
-        await marcarHecha();
         return { flowData: fd, preguntoAhora: false };
       }
 
       const datos = await leerDatosGuardadosPorTelefono(input.empresaId, input.telefono);
       if (!datos) {
-        await marcarHecha();
         return { flowData: fd, preguntoAhora: false };
       }
 
       const ctxGrafo = await loadFlowCaptureGraphContext(supabase, input.empresaId, input.flowCode);
       if (!ctxGrafo) {
-        await marcarHecha();
         return { flowData: fd, preguntoAhora: false };
       }
 
       const plan = planificarPrecargaDeDatos(ctxGrafo, fd, datos);
       if (plan.pendientes.length === 0) {
-        await marcarHecha();
         return { flowData: fd, preguntoAhora: false };
       }
 
@@ -1865,7 +1882,6 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       const pendientes = plan.pendientes.join(",");
       await guardar(CAMPO_PRECARGA_PENDIENTES, pendientes);
       fd[CAMPO_PRECARGA_PENDIENTES] = pendientes;
-      await marcarHecha();
 
       /*
        * Se le muestran los datos y se le pregunta, con dos botones, si sigue con esos o quiere
@@ -1902,7 +1918,6 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         e instanceof Error ? e.message : e
       );
       try {
-        await marcarHecha();
       } catch {
         /* Si ni la marca se puede escribir, el flujo sigue preguntando todo. */
       }
@@ -2004,10 +2019,8 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     const bucketDelNodo = campoDelNodo ? bucketForSaveField(campoDelNodo) : "other";
     const esCapturaPersonal =
       node.node_type === "text" &&
-      (bucketDelNodo === "nombre" ||
-        bucketDelNodo === "apellido" ||
-        bucketDelNodo === "cedula" ||
-        bucketDelNodo === "ciudad");
+      Boolean(campoDelNodo) &&
+      esCapturaDeDatoPersonal(campoDelNodo, bucketDelNodo);
 
     if (esCapturaPersonal) {
       let fdPrecarga = hydFdPointer;
