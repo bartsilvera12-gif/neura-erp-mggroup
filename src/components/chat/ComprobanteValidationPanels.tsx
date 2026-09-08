@@ -68,6 +68,27 @@ export function ComprobanteValidationPanelComprobantesCore({ value: s, onChange 
           />
           Rechazar los comprobantes que llegan reenviados
         </label>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
+            Antigüedad máxima del comprobante (días)
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={365}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+            value={s.max_dias_antiguedad_comprobante}
+            onChange={(e) =>
+              set({ max_dias_antiguedad_comprobante: Math.max(0, Number(e.target.value) || 0) })
+            }
+          />
+          <p className="mt-1 text-[11px] text-slate-500">
+            Se rechaza el comprobante cuya fecha sea más vieja que esto. Con 0 solo se acepta el
+            del día. No conviene bajarlo mucho: alguien puede transferir de noche y mandar la
+            captura a la mañana. Si la fecha no se puede leer, no se rechaza nada.
+          </p>
+        </div>
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">

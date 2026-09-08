@@ -14,6 +14,7 @@ export type ComprobanteEstadoValidacion =
   | "monto_incoherente"
   | "datos_bancarios_incoherentes"
   | "comprobante_reenviado"
+  | "comprobante_vencido"
   | "aprobado_manual"
   | "rechazado_manual";
 
@@ -39,6 +40,8 @@ export interface ComprobanteValidationMessages {
   datos_bancarios_incoherentes: string;
   /** El comprobante llegó reenviado de otro chat. */
   comprobante_reenviado: string;
+  /** La fecha del comprobante es de otro día. */
+  comprobante_vencido: string;
   boton_otro_titulo: string;
   boton_asesor_titulo: string;
 }
@@ -60,6 +63,8 @@ export interface ComprobanteValidationSettings {
   validar_monto_vs_flujo: boolean;
   /** Rechaza los comprobantes que llegan reenviados de otro chat. */
   rechazar_comprobante_reenviado: boolean;
+  /** Días de antigüedad tolerados en la fecha del comprobante. 0 = solo el día de hoy. */
+  max_dias_antiguedad_comprobante: number;
   /** Tolerancia en guaraníes: abs(ocr - esperado) <= tolerancia se considera válido. */
   monto_tolerancia_absoluta_gs: number;
   /** Orden de lectura de field_name en chat_flow_data para el monto esperado. */
@@ -155,6 +160,8 @@ export const DEFAULT_COMPROBANTE_VALIDATION_MESSAGES: ComprobanteValidationMessa
     "El comprobante no coincide con los datos bancarios esperados. Podés reenviar el comprobante o hablar con un asesor.",
   comprobante_reenviado:
     "No podemos tomar un comprobante reenviado de otro chat. Mandanos la captura directo desde la app de tu banco, por favor.",
+  comprobante_vencido:
+    "Ese comprobante es de otra fecha y no corresponde a esta compra. Enviá el comprobante del pago que acabás de hacer, por favor.",
   boton_otro_titulo: "Otro comprobante",
   boton_asesor_titulo: "Hablar con asesor",
 };
@@ -178,6 +185,12 @@ export function defaultComprobanteValidationSettings(): ComprobanteValidationSet
      * quiere eso; el que forwardea su propio comprobante lo vuelve a mandar y listo.
      */
     rechazar_comprobante_reenviado: true,
+    /*
+     * Días de antigüedad tolerados. Tres, no cero: alguien puede transferir de noche y mandar la
+     * captura a la mañana, o pagar un viernes y volver el lunes. Con cero, esos pagos buenos se
+     * rechazarían. Con tres, un comprobante de la semana pasada igual no entra.
+     */
+    max_dias_antiguedad_comprobante: 3,
     monto_tolerancia_absoluta_gs: 0,
     monto_fields_prioridad: ["monto", "monto_compra", "sorteo_monto_opcion"],
     validar_datos_bancarios_ocr: false,
@@ -275,6 +288,10 @@ export function parseComprobanteValidationConfig(config: unknown): ComprobanteVa
       typeof messages.comprobante_reenviado === "string" && messages.comprobante_reenviado.trim()
         ? messages.comprobante_reenviado.trim()
         : base.messages.comprobante_reenviado,
+    comprobante_vencido:
+      typeof messages.comprobante_vencido === "string" && messages.comprobante_vencido.trim()
+        ? messages.comprobante_vencido.trim()
+        : base.messages.comprobante_vencido,
     monto_incoherente:
       typeof messages.monto_incoherente === "string" && messages.monto_incoherente.trim()
         ? messages.monto_incoherente.trim()
@@ -341,6 +358,12 @@ export function parseComprobanteValidationConfig(config: unknown): ComprobanteVa
     validar_monto_vs_flujo: r.validar_monto_vs_flujo === true,
     /** Solo un `false` explícito lo apaga: si la clave no está, queda prendido. */
     rechazar_comprobante_reenviado: r.rechazar_comprobante_reenviado !== false,
+    max_dias_antiguedad_comprobante:
+      typeof r.max_dias_antiguedad_comprobante === "number" &&
+      Number.isFinite(r.max_dias_antiguedad_comprobante) &&
+      r.max_dias_antiguedad_comprobante >= 0
+        ? Math.trunc(r.max_dias_antiguedad_comprobante)
+        : base.max_dias_antiguedad_comprobante,
     monto_tolerancia_absoluta_gs: tolerancia,
     monto_fields_prioridad: montoFields,
     validar_datos_bancarios_ocr: r.validar_datos_bancarios_ocr === true,
@@ -372,6 +395,7 @@ export function comprobanteValidationSettingsForForm(
     enabled: settings.enabled,
     validar_monto_vs_flujo: settings.validar_monto_vs_flujo,
     rechazar_comprobante_reenviado: settings.rechazar_comprobante_reenviado,
+    max_dias_antiguedad_comprobante: settings.max_dias_antiguedad_comprobante,
     monto_tolerancia_absoluta_gs: settings.monto_tolerancia_absoluta_gs,
     monto_fields_prioridad: [...settings.monto_fields_prioridad],
     validar_datos_bancarios_ocr: settings.validar_datos_bancarios_ocr,

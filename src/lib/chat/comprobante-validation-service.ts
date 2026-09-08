@@ -23,6 +23,7 @@ import {
   SORTEO_COMPROBANTE_VALIDACION_ID_FIELD,
 } from "@/lib/chat/comprobante-validation-types";
 import { runGoogleVisionDocumentOcr } from "@/lib/chat/comprobante-vision-ocr";
+import { evaluarFechaComprobante } from "@/lib/chat/comprobante-fecha-validation";
 import {
   DEFAULT_MONTO_FIELDS_PRIORIDAD,
   fetchExpectedMontoGsFromFlowSession,
@@ -61,6 +62,7 @@ const ESTADOS_HASH_BLOQUEA_REUSO: ComprobanteEstadoValidacion[] = [
   "monto_incoherente",
   "datos_bancarios_incoherentes",
   "comprobante_reenviado",
+  "comprobante_vencido",
 ];
 
 function normalizeWs(s: string): string {
@@ -676,6 +678,28 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
 
   const bankFlowResult = validateReceiptBankDataAgainstExpected(settings, fullText);
 
+  /*
+   * Fecha del comprobante. Alguien puede mandar la captura de una transferencia vieja: existió
+   * de verdad y el OCR la lee perfecto, así que la fecha es lo único que la delata.
+   *
+   * Si no se pudo leer, no se rechaza. Dejar pasar un comprobante viejo lo nota alguien; en
+   * cambio rechazar el pago bueno de un cliente por una fecha mal leída lo hace irse.
+   */
+  const fechaEval = evaluarFechaComprobante({
+    fechaOcr: extracted.fecha,
+    maxDiasAntiguedad: settings.max_dias_antiguedad_comprobante,
+  });
+  if (fechaEval.fueraDeVentana) {
+    console.info("[sorteo-comprobante][fecha]", {
+      empresa_id: ctx.empresaId,
+      flow_session_id: sid,
+      ocr_fecha: extracted.fecha,
+      dias: fechaEval.diasDeAntiguedad,
+      motivo: fechaEval.motivo,
+      max_dias: settings.max_dias_antiguedad_comprobante,
+    });
+  }
+
   const fpLongEnough =
     extracted.texto_completo.length >= MIN_CHARS_FOR_OCR_FINGERPRINT_CHECK;
   const fp =
@@ -774,6 +798,9 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
      */
     estado = "comprobante_reenviado";
     motivo = "mensaje_reenviado";
+  } else if (fechaEval.fueraDeVentana) {
+    estado = "comprobante_vencido";
+    motivo = `fecha_comprobante:${fechaEval.motivo};ocr=${extracted.fecha};dias=${fechaEval.diasDeAntiguedad}`;
   } else if (ocrRefStrongDup) {
     estado = "duplicado_ocr";
     motivo = "ocr_duplicado_referencia";
@@ -859,6 +886,27 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
       advance: false,
       sendInteractive: {
         body: settings.messages.ocr_duplicado,
+        buttons: [
+          { id: COMPROBANTE_BUTTON_IDS.enviar_otro, title: settings.messages.boton_otro_titulo.slice(0, 20) },
+          {
+            id: COMPROBANTE_BUTTON_IDS.hablar_asesor,
+            title: settings.messages.boton_asesor_titulo.slice(0, 20),
+          },
+        ],
+      },
+    };
+  }
+
+  if (estado === "comprobante_vencido") {
+    return {
+      kind: "resolved",
+      validationId,
+      estado,
+      motivo,
+      flowUpserts,
+      advance: false,
+      sendInteractive: {
+        body: settings.messages.comprobante_vencido,
         buttons: [
           { id: COMPROBANTE_BUTTON_IDS.enviar_otro, title: settings.messages.boton_otro_titulo.slice(0, 20) },
           {
@@ -1015,6 +1063,7 @@ export async function mensajeClienteComprobanteNoValido(
   if (estado === "duplicado_hash") return s.messages.hash_duplicado;
   if (estado === "duplicado_ocr") return s.messages.ocr_duplicado;
   if (estado === "comprobante_reenviado") return s.messages.comprobante_reenviado;
+  if (estado === "comprobante_vencido") return s.messages.comprobante_vencido;
   if (estado === "monto_incoherente") return s.messages.monto_incoherente;
   if (estado === "datos_bancarios_incoherentes") return s.messages.datos_bancarios_incoherentes;
   if (estado === "ocr_error") return s.messages.ocr_insuficiente;
