@@ -100,6 +100,38 @@ export type ExtractedReceiptFields = {
   monto_ocr_audit?: MontoOcrSelectionAudit | null;
 };
 
+/**
+ * Etiquetas que de verdad anteceden al número de operación.
+ *
+ * Se buscan primero, y aparte de las genéricas, porque en un comprobante el número de cuenta
+ * suele ir ANTES que el de operación y viene rotulado «Nro.» o «N°». Con una sola expresión
+ * que mezclara todas las etiquetas ganaba la que apareciera primero en el texto, o sea la
+ * cuenta: por eso quedaban guardadas cuentas de destino en vez de referencias. Y una cuenta
+ * se repite en todos los comprobantes de ese banco, que es exactamente lo que no sirve para
+ * detectar un pago repetido —y lo que haría rechazar compras buenas—.
+ */
+const REF_ETIQUETA_ESPECIFICA =
+  /(?:comprobante|operaci[oó]n|transacci[oó]n|referencia)\s*[:\s.\-]*([A-Z0-9][A-Z0-9\-/.]{5,})/i;
+
+/** Etiquetas genéricas: solo si no apareció ninguna específica. */
+const REF_ETIQUETA_GENERICA = /(?:n[°º]|cod\.?|nro\.?|ref\.?)\s*[:\s.\-]*([A-Z0-9][A-Z0-9\-/.]{5,})/gi;
+
+/** Lo que en el texto anterior delata que ese número es una cuenta, no una operación. */
+const PISTAS_DE_CUENTA = /(cuenta|cta\.?|ah\s*-|\bah\b|alias|ruc|c\.?i\.?)\s*[:\-]?\s*$/i;
+
+export function extraerReferenciaDeComprobante(texto: string): string {
+  const especifica = texto.match(REF_ETIQUETA_ESPECIFICA);
+  if (especifica?.[1]) return especifica[1].trim();
+
+  REF_ETIQUETA_GENERICA.lastIndex = 0;
+  for (let m = REF_ETIQUETA_GENERICA.exec(texto); m; m = REF_ETIQUETA_GENERICA.exec(texto)) {
+    const antes = texto.slice(Math.max(0, m.index - 24), m.index);
+    if (PISTAS_DE_CUENTA.test(antes)) continue;
+    if (m[1]) return m[1].trim();
+  }
+  return "";
+}
+
 /** Heurística liviana para comprobantes PY / transferencias (no reemplaza revisión humana). */
 export function extractReceiptFieldsFromOcr(
   fullText: string,
@@ -109,12 +141,7 @@ export function extractReceiptFieldsFromOcr(
 
   const pick = selectReceiptMontoFromOcrText(t, montoOpts ?? {});
 
-  let referencia = "";
-  // `referencia` antes de `ref` para no matchear el prefijo "Ref" de la palabra "Referencia".
-  const refRe =
-    /(?:referencia|operaci[oó]n|comprobante|n[°º]|cod\.?|nro\.?|ref\.?)\s*[:\s.-]*([A-Z0-9][A-Z0-9\-/.]{5,})/i;
-  const refM = t.match(refRe);
-  if (refM?.[1]) referencia = refM[1].trim();
+  const referencia = extraerReferenciaDeComprobante(t);
 
   let fecha = "";
   const fechaRe = /\b(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b/;
