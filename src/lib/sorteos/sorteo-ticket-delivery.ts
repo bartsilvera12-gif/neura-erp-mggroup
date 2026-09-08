@@ -391,10 +391,21 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
      * ningún cambio, porque el archivo quedaba guardado pero nadie lo leía.
      */
     let logoDl: { bytes: Buffer; mime: string } | null = null;
+    let logoUsado: string | null = null;
     for (const candidato of sorteoTicketAssetLogoCandidates(empresaId, sorteoId)) {
       logoDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, candidato);
-      if (logoDl) break;
+      if (logoDl) {
+        logoUsado = candidato;
+        break;
+      }
     }
+    /** Queda en el log cuál archivo se uso: es lo unico que despeja un «subi el logo y no cambio». */
+    console.info("[sorteo-ticket] logo", {
+      sorteoId,
+      usado: logoUsado,
+      bytes: logoDl?.bytes.length ?? 0,
+      mime: logoDl?.mime ?? null,
+    });
     const bgDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, bgPath);
 
     let templateDl: { bytes: Buffer; mime: string } | null = null;
