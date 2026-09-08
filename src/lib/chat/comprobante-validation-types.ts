@@ -186,11 +186,14 @@ export function defaultComprobanteValidationSettings(): ComprobanteValidationSet
      */
     rechazar_comprobante_reenviado: true,
     /*
-     * Días de antigüedad tolerados. Tres, no cero: alguien puede transferir de noche y mandar la
-     * captura a la mañana, o pagar un viernes y volver el lunes. Con cero, esos pagos buenos se
-     * rechazarían. Con tres, un comprobante de la semana pasada igual no entra.
+     * Días de antigüedad tolerados.
+     *
+     * Uno, no cero: alguien puede transferir a las once de la noche y mandar la captura a la
+     * mañana siguiente, y ese pago es bueno. Pero un comprobante de hace tres días ya no es de
+     * esta compra —eso lo confirmó el cliente con dos casos reales—, asi que la ventana es
+     * corta. Se configura por canal.
      */
-    max_dias_antiguedad_comprobante: 3,
+    max_dias_antiguedad_comprobante: 1,
     monto_tolerancia_absoluta_gs: 0,
     monto_fields_prioridad: ["monto", "monto_compra", "sorteo_monto_opcion"],
     validar_datos_bancarios_ocr: false,

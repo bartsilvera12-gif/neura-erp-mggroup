@@ -19,6 +19,33 @@ export type FechaComprobanteEvaluacion = {
 const DIAS_DE_GRACIA_FUTURO = 1;
 
 /**
+ * Meses escritos con letras, como los abrevia cada banco.
+ *
+ * Banco Familiar manda «05/sept/2026» y otros «5 de septiembre de 2026». Leyendo solo fechas
+ * numéricas esos comprobantes quedaban sin fecha, y por lo tanto nunca se rechazaban por
+ * viejos: justo el caso que se quería cubrir.
+ */
+const MESES_PY: Record<string, number> = {
+  ene: 1, enero: 1,
+  feb: 2, febrero: 2,
+  mar: 3, marzo: 3,
+  abr: 4, abril: 4,
+  may: 5, mayo: 5,
+  jun: 6, junio: 6,
+  jul: 7, julio: 7,
+  ago: 8, agosto: 8,
+  set: 9, sep: 9, sept: 9, septiembre: 9, setiembre: 9,
+  oct: 10, octubre: 10,
+  nov: 11, noviembre: 11,
+  dic: 12, diciembre: 12,
+};
+
+function mesDesdeTexto(raw: string): number | null {
+  const t = raw.trim().toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/\.$/, "");
+  return MESES_PY[t] ?? null;
+}
+
+/**
  * Fecha de un comprobante paraguayo: día/mes/año.
  *
  * El orden importa y no se adivina: en Paraguay 01/09 es el 1 de septiembre, nunca el 9 de
@@ -32,11 +59,14 @@ export function parsearFechaComprobantePy(raw: string | null | undefined): Date 
   const t = (raw ?? "").trim();
   if (!t) return null;
 
-  const m = t.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})$/);
+  const m = t.match(
+    /^(\d{1,2})\s*(?:de\s+)?[/.\- ]\s*([A-Za-zÁÉÍÓÚáéíóú.]+|\d{1,2})\s*(?:de\s+)?[/.\- ]\s*(\d{2,4})$/
+  );
   if (!m) return null;
 
   const dia = Number(m[1]);
-  const mes = Number(m[2]);
+  /** El mes viene en número o en letras: «05/sept/2026» es tan común como «05/09/2026». */
+  const mes = /^\d+$/.test(m[2]) ? Number(m[2]) : (mesDesdeTexto(m[2]) ?? NaN);
   let anio = Number(m[3]);
   if (!Number.isFinite(dia) || !Number.isFinite(mes) || !Number.isFinite(anio)) return null;
   if (dia < 1 || dia > 31 || mes < 1 || mes > 12) return null;

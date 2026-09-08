@@ -1,5 +1,14 @@
-/** Referencias OCR cortas o token genérico repetido en muchos comprobantes (ej. mismo dígito OCR en PY). */
-export const MIN_OCR_REF_LENGTH_FOR_STRONG_DUPLICATE = 12;
+/**
+ * Largo mínimo de una referencia para bloquear por repetida.
+ *
+ * Estaba en 12 y dejaba afuera a todos los bancos que se usan acá: Basa numera con 10 dígitos
+ * y Familiar con 9. Con ese mínimo la detección de comprobantes reusados no se aplicaba nunca.
+ *
+ * Se pudo bajar recién después de arreglar de dónde sale la referencia: antes se guardaban
+ * números de cuenta, que se repiten en todos los comprobantes de un banco, y bajar el mínimo
+ * hubiera hecho rechazar compras buenas en masa.
+ */
+export const MIN_OCR_REF_LENGTH_FOR_STRONG_DUPLICATE = 8;
 
 const OCR_REF_STRONG_BLOCKLIST = new Set(
   [

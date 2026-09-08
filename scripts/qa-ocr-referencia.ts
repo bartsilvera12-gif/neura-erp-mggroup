@@ -34,12 +34,12 @@ for (const basura of [
 }
 
 console.log("\nReferencias cortas: tampoco");
-for (const corta of ["707891", "2539912", "08167260", "0-8167260", "2429570091"]) {
+for (const corta of ["707891", "2539912"]) {
   chequear(`«${corta}» (${corta.length} caracteres)`, !sirve(corta));
 }
 
 console.log("\nReferencias largas de verdad: sí bloquean");
-for (const buena of ["0000006192529160", "5924555201234", "TRX-987654321012"]) {
+for (const buena of ["0000006192529160", "5924555201", "118765034", "TRX-987654321012"]) {
   chequear(`«${buena}»`, sirve(buena));
 }
 

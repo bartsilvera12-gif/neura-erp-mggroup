@@ -7,7 +7,14 @@
  *
  * Correr con: npx tsx --conditions=react-server scripts/qa-ocr-referencia-extraccion.ts
  */
-import { extraerReferenciaDeComprobante } from "@/lib/chat/comprobante-validation-service";
+import {
+  extraerFechaDeComprobante,
+  extraerReferenciaDeComprobante,
+} from "@/lib/chat/comprobante-validation-service";
+import {
+  evaluarFechaComprobante,
+  parsearFechaComprobantePy,
+} from "@/lib/chat/comprobante-fecha-validation";
 
 let fallas = 0;
 const chequear = (n: string, ok: boolean, d?: unknown) => {
@@ -76,6 +83,49 @@ console.log("\nSin nada que parezca referencia");
 {
   chequear("texto vacío", extraerReferenciaDeComprobante("") === "");
   chequear("texto sin etiquetas", extraerReferenciaDeComprobante("Transferencia exitosa Gs. 10.000") === "");
+}
+
+console.log("\nComprobante de Banco Familiar / Eko (mes escrito con letras)");
+{
+  const texto = [
+    "Envío",
+    "10.000",
+    "Enviado por",
+    "Kebin Gabriel Davalos Ramirez",
+    "Banco Familiar",
+    "Cta. N° ......31",
+    "Enviado a",
+    "Magno Sotelo Espinola",
+    "Banco Familiar",
+    "Cta. N° 0-8167260",
+    "Fecha",
+    "05/sept/2026 16:15 Hs.",
+    "N° de Comprobante",
+    "118765034",
+  ].join("\n");
+
+  const ref = extraerReferenciaDeComprobante(texto);
+  chequear("saca el número de comprobante, no la cuenta", ref === "118765034", ref);
+
+  const fecha = extraerFechaDeComprobante(texto);
+  chequear("lee la fecha aunque el mes venga escrito", fecha === "05/sept/2026", fecha);
+
+  const d = parsearFechaComprobantePy(fecha);
+  chequear(
+    "la entiende como 5 de septiembre",
+    d?.getUTCDate() === 5 && d?.getUTCMonth() === 8 && d?.getUTCFullYear() === 2026,
+    d?.toISOString()
+  );
+
+  const ev = evaluarFechaComprobante({
+    fechaOcr: fecha,
+    maxDiasAntiguedad: 1,
+    ahora: new Date(Date.UTC(2026, 8, 8, 12, 0, 0)),
+  });
+  chequear("el 8 de septiembre ya la rechaza", ev.fueraDeVentana && ev.diasDeAntiguedad === 3, {
+    ...ev,
+    fecha: undefined,
+  });
 }
 
 console.log(fallas === 0 ? "\nTodo bien.\n" : `\n${fallas} falla(s).\n`);

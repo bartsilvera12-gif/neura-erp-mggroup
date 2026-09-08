@@ -134,6 +134,29 @@ export function extraerReferenciaDeComprobante(texto: string): string {
   return "";
 }
 
+/**
+ * Fecha del comprobante, en numero o con el mes escrito.
+ *
+ * Los bancos la escriben de las dos formas: «01/09/2026» y «05/sept/2026». Buscando solo la
+ * numerica, los comprobantes del segundo grupo quedaban sin fecha y nunca se podian rechazar
+ * por viejos.
+ *
+ * Se prefiere la que viene rotulada «Fecha» o «Realizado el»: en un comprobante puede haber
+ * otras fechas —vencimientos, la del proximo pago— y la que importa es la de la operacion.
+ */
+const FECHA_NUMERICA = String.raw`\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}`;
+const FECHA_CON_MES = String.raw`\d{1,2}\s*(?:de\s+)?[/.\- ]\s*[A-Za-zÁÉÍÓÚáéíóú.]{3,10}\s*(?:de\s+)?[/.\- ]\s*\d{2,4}`;
+const CUALQUIER_FECHA = `(${FECHA_CON_MES}|${FECHA_NUMERICA})`;
+const ETIQUETA_FECHA = String.raw`(?:fecha\s+y\s+hora|realizado\s+el|fecha)\s*[:\s.\-]*`;
+
+export function extraerFechaDeComprobante(texto: string): string {
+  const rotulada = texto.match(new RegExp(ETIQUETA_FECHA + CUALQUIER_FECHA, "i"));
+  if (rotulada?.[1]) return rotulada[1].trim();
+
+  const suelta = texto.match(new RegExp(CUALQUIER_FECHA, "i"));
+  return suelta?.[1]?.trim() ?? "";
+}
+
 /** Heurística liviana para comprobantes PY / transferencias (no reemplaza revisión humana). */
 export function extractReceiptFieldsFromOcr(
   fullText: string,
@@ -145,10 +168,7 @@ export function extractReceiptFieldsFromOcr(
 
   const referencia = extraerReferenciaDeComprobante(t);
 
-  let fecha = "";
-  const fechaRe = /\b(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b/;
-  const fm = t.match(fechaRe);
-  if (fm?.[1]) fecha = fm[1];
+  const fecha = extraerFechaDeComprobante(t);
 
   let hora = "";
   const horaRe = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/;
