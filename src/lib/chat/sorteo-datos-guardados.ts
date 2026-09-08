@@ -261,6 +261,36 @@ export function textoDatosReutilizados(datos: DatosGuardadosComprador): string {
   );
 }
 
+/**
+ * De las opciones de un paso de resumen, cuál es la que sigue para adelante.
+ *
+ * Un resumen de datos tiene dos botones: uno confirma y sigue, el otro vuelve atrás a corregir.
+ * No se distinguen por el texto —cada cliente los escribe como quiere— sino por a dónde
+ * apuntan: el que confirma lleva a un paso posterior en el flujo, el de corregir a uno
+ * anterior. Devuelve null si ninguna avanza, y en ese caso el paso se muestra como siempre:
+ * ante la duda, preguntar de más es mucho menos grave que saltear el cierre de la compra.
+ */
+export function opcionQueAvanza(
+  ordenDelFlujo: string[],
+  nodoActual: string,
+  opciones: Array<{ next_node_code?: string | null; sort_order?: number | null }>
+): string | null {
+  const iActual = ordenDelFlujo.findIndex((c) => c.trim() === nodoActual.trim());
+  if (iActual < 0) return null;
+
+  const candidatas = opciones
+    .map((o) => ({
+      destino: (o.next_node_code ?? "").trim(),
+      orden: o.sort_order ?? Number.MAX_SAFE_INTEGER,
+    }))
+    .filter((o) => o.destino)
+    .map((o) => ({ ...o, i: ordenDelFlujo.findIndex((c) => c.trim() === o.destino) }))
+    .filter((o) => o.i > iActual)
+    .sort((a, b) => a.orden - b.orden);
+
+  return candidatas[0]?.destino ?? null;
+}
+
 export function leerPendientes(flowData: Record<string, string>): string[] {
   return String(flowData[CAMPO_PRECARGA_PENDIENTES] ?? "")
     .split(",")

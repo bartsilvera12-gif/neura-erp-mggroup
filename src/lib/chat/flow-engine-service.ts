@@ -81,6 +81,7 @@ import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema"
 import {
   bucketForSaveField,
   describeFlowCaptureCompletenessForLogs,
+  isParticipantSummaryReviewNode,
   loadFlowCaptureGraphContext,
   resolveEffectiveNodeCodeForFlowCompleteness,
 } from "@/lib/sorteos/sorteo-flow-capture-order";
@@ -91,6 +92,7 @@ import {
   CAMPO_PRECARGA_PENDIENTES,
   esCapturaDeDatoPersonal,
   leerDatosGuardadosPorTelefono,
+  opcionQueAvanza,
   leerPendientes,
   planificarPrecargaDeDatos,
   textoDatosReutilizados,
@@ -2084,6 +2086,71 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         if (!advSalto.ok) return { ok: false, error: advSalto.error ?? "advance_failed" };
         return sendCurrentFlowNode({ ...params, __autoHop: currentHop + 1 });
       }
+    }
+
+    /*
+     * El resumen «Confirmá tus datos» del flujo, cuando la persona ya confirmó los datos
+     * guardados un momento antes.
+     *
+     * Se le estaban pidiendo dos confirmaciones seguidas de lo mismo. Se saltea SOLO en ese
+     * caso: quien compra por primera vez tipeó su cédula y su nombre a mano y necesita esa
+     * pantalla para revisarlos antes de cerrar.
+     *
+     * Se saltea una sola vez —la marca pasa a «resumen_salteado»— para que volver atrás a
+     * corregir siga funcionando.
+     */
+    if (
+      String(hydFdPointer[CAMPO_PRECARGA_CONFIRMADA] ?? "").trim() === "si" &&
+      isParticipantSummaryReviewNode({
+        id: node.id,
+        node_code: node.node_code,
+        node_type: node.node_type,
+        message_text: node.message_text,
+        save_as_field: node.save_as_field,
+        next_node_code: node.next_node_code,
+      })
+    ) {
+      const ctxGrafoResumen = await loadFlowCaptureGraphContext(
+        supabase,
+        state.empresa_id,
+        state.flow_code
+      );
+      const opciones = await getNodeOptions(node.id);
+      const siguienteResumen = ctxGrafoResumen
+        ? opcionQueAvanza(ctxGrafoResumen.order, node.node_code, opciones)
+        : null;
+      if (siguienteResumen) {
+        await guardarCampoDeFlujo({
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code,
+          flowSessionId: sidGate,
+          campo: CAMPO_PRECARGA_CONFIRMADA,
+          valor: "resumen_salteado",
+        });
+        await insertFlowEvent({
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code,
+          nodeCode: node.node_code,
+          flowSessionId: sidGate,
+          eventType: "resumen_datos_salteado",
+          payload: { next_node_code: siguienteResumen, reason: "datos_ya_confirmados" },
+        });
+        const advResumen = await advanceConversationToNode({
+          conversationId: state.id,
+          empresaId: state.empresa_id,
+          flowCode: state.flow_code,
+          nextNodeCode: siguienteResumen,
+        });
+        if (!advResumen.ok) return { ok: false, error: advResumen.error ?? "advance_failed" };
+        return sendCurrentFlowNode({ ...params, __autoHop: currentHop + 1 });
+      }
+      console.info("[sorteo-datos-guardados] resumen_no_salteado", {
+        conversation_id: state.id,
+        node_code: node.node_code,
+        motivo: ctxGrafoResumen ? "ninguna_opcion_avanza" : "sin_grafo",
+      });
     }
 
     const flowVarsBase = await getConversationFlowDataMap({

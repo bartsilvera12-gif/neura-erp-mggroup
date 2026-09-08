@@ -10,6 +10,7 @@
 import {
   BOTONES_DATOS_GUARDADOS,
   leerPendientes,
+  opcionQueAvanza,
   planificarPrecargaDeDatos,
   type DatosGuardadosComprador,
 } from "@/lib/chat/sorteo-datos-guardados";
@@ -198,6 +199,49 @@ console.log("\nLectura de la lista de pendientes");
 {
   chequear("lista vacía", leerPendientes({}).length === 0);
   chequear("ignora espacios y comas sueltas", leerPendientes({ sorteo_datos_precarga_pendientes: " a , ,b " }).join(",") === "a,b");
+}
+
+console.log("\nCuál botón del resumen sigue para adelante");
+{
+  /** Como el flujo real: … cedula → nombre → ciudad → telefono → resumen → compra_realizada. */
+  const orden = [
+    "verificacion",
+    "cedula",
+    "nombre",
+    "ciudad",
+    "telefono",
+    "comprobacion_datos",
+    "compra_realizada",
+  ];
+  const opciones = [
+    { next_node_code: "compra_realizada", sort_order: 1 },
+    { next_node_code: "verificacion", sort_order: 2 },
+  ];
+  chequear(
+    "elige el que confirma, no el de corregir",
+    opcionQueAvanza(orden, "comprobacion_datos", opciones) === "compra_realizada"
+  );
+  chequear(
+    "no depende de en qué orden estén los botones",
+    opcionQueAvanza(orden, "comprobacion_datos", [...opciones].reverse()) === "compra_realizada"
+  );
+  chequear(
+    "si las dos vuelven atrás, no saltea nada",
+    opcionQueAvanza(orden, "comprobacion_datos", [
+      { next_node_code: "verificacion", sort_order: 1 },
+    ]) === null
+  );
+  chequear("sin opciones, no saltea", opcionQueAvanza(orden, "comprobacion_datos", []) === null);
+  chequear(
+    "si el paso no está en el flujo, no saltea",
+    opcionQueAvanza(orden, "otro_nodo", opciones) === null
+  );
+  chequear(
+    "ignora destinos que no existen",
+    opcionQueAvanza(orden, "comprobacion_datos", [
+      { next_node_code: "fantasma", sort_order: 1 },
+    ]) === null
+  );
 }
 
 console.log(fallas === 0 ? "\nTodo bien.\n" : `\n${fallas} falla(s).\n`);
