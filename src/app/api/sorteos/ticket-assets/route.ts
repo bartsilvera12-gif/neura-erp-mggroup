@@ -74,6 +74,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse(upErr.message), { status: 500 });
     }
 
+    /*
+     * Se borran las versiones con otra extensión.
+     *
+     * Sin esto, subir un logo .jpg o .webp dejaba el .png viejo en su lugar, y como el
+     * comprobante lee primero el .png, seguía saliendo el logo anterior: parecía que subir uno
+     * nuevo no hiciera nada. Tiene que quedar un solo archivo por asset.
+     */
+    const hermanos = ["png", "webp", "jpg"]
+      .filter((e) => e !== ext)
+      .map((e) => objectPath.replace(/\.[a-z]+$/, `.${e}`));
+    const { error: rmViejos } = await sb.storage
+      .from(SORTEO_TICKET_ASSETS_BUCKET)
+      .remove(hermanos);
+    if (rmViejos) {
+      /** No es fatal: el asset nuevo ya está subido. Queda en el log por si el logo no cambia. */
+      console.warn(
+        "[sorteos/ticket-assets] no_se_pudieron_borrar_versiones_viejas",
+        rmViejos.message
+      );
+    }
+
     return NextResponse.json(
       successResponse({
         bucket: SORTEO_TICKET_ASSETS_BUCKET,

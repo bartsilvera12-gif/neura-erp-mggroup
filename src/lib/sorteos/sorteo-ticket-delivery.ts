@@ -28,7 +28,7 @@ import {
   SORTEO_TICKET_ASSETS_BUCKET,
   SORTEO_TICKET_GENERATED_BUCKET,
   sorteoTicketAssetBackgroundPath,
-  sorteoTicketAssetLogoPath,
+  sorteoTicketAssetLogoCandidates,
   sorteoTicketAssetTemplateCandidates,
   sorteoTicketGeneratedPath,
   uploadGeneratedTicketPng,
@@ -384,15 +384,16 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
     console.info("[sorteo-ticket] render_start", { deliveryId: rowId, entradaId });
 
     const empresaNombre = await loadEmpresaNombre(empresaId);
-    const logoPath = sorteoTicketAssetLogoPath(empresaId, sorteoId);
     const bgPath = sorteoTicketAssetBackgroundPath(empresaId, sorteoId);
-    let logoDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, logoPath);
-    if (!logoDl) {
-      logoDl = await downloadAssetIfExists(
-        supabase,
-        SORTEO_TICKET_ASSETS_BUCKET,
-        `${empresaId}/${sorteoId}/logo.webp`
-      );
+    /**
+     * El logo se guarda como png, webp o jpg según el archivo que suban, así que hay que
+     * buscarlo en las tres. Antes solo se miraban png y webp: quien subía un jpg no veía
+     * ningún cambio, porque el archivo quedaba guardado pero nadie lo leía.
+     */
+    let logoDl: { bytes: Buffer; mime: string } | null = null;
+    for (const candidato of sorteoTicketAssetLogoCandidates(empresaId, sorteoId)) {
+      logoDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, candidato);
+      if (logoDl) break;
     }
     const bgDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, bgPath);
 
