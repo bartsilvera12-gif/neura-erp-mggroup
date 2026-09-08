@@ -91,11 +91,20 @@ function ultimosDigitos(telefono: string): string {
 }
 
 /**
- * Datos de la última compra hecha desde ese número de WhatsApp.
+ * Datos de la última compra ONLINE hecha desde ese número de WhatsApp.
+ *
+ * Se excluyen las ventas del punto de venta, del ERP y del modo #VENTA. No es una cuestión de
+ * prolijidad: en esas el teléfono lo tipea el vendedor, y un dígito de más o de menos hace que
+ * la venta quede atada al número de otra persona. Esa persona escribe al bot y ve el nombre y
+ * la cédula de un desconocido. En una compra por WhatsApp el número lo pone WhatsApp, no un
+ * humano apurado, así que no puede estar mal.
+ *
+ * `revendedor_id` y `venta_origen` se leen con `to_jsonb` porque son columnas opcionales: hay
+ * esquemas donde no existen, y referenciarlas directo rompería la consulta entera.
  *
  * La ciudad se busca en la venta, en lo que la persona contestó por WhatsApp y en su ficha de
- * cliente, en ese orden. `to_jsonb(e) ->> 'ciudad'` en vez de `e.ciudad` para que la consulta
- * siga funcionando aunque no se haya corrido la migración que agrega la columna.
+ * cliente, en ese orden. También con `to_jsonb`, para que siga funcionando aunque no se haya
+ * corrido la migración que agrega la columna.
  */
 export async function leerDatosGuardadosPorTelefono(
   empresaId: string,
@@ -139,6 +148,10 @@ export async function leerDatosGuardadosPorTelefono(
         WHERE e.empresa_id = $1::uuid
           AND right(regexp_replace(COALESCE(e.whatsapp_numero, ''), '\\D', '', 'g'), 8) = $2
           AND NULLIF(TRIM(COALESCE(e.nombre_participante, '')), '') IS NOT NULL
+          /* Solo compras que hizo la propia persona por WhatsApp. Ver el comentario de arriba. */
+          AND e.chat_conversation_id IS NOT NULL
+          AND (to_jsonb(e) ->> 'revendedor_id') IS NULL
+          AND COALESCE(to_jsonb(e) ->> 'venta_origen', 'whatsapp_flow') <> 'erp_manual'
         ORDER BY e.created_at DESC
         LIMIT 1`,
       [empresaId, cola]
