@@ -107,6 +107,35 @@ async function sendWhatsAppPayload(
   return { ok: true, waMessageId, raw };
 }
 
+/**
+ * Marca el mensaje como leido y muestra «escribiendo…» en el WhatsApp del cliente.
+ *
+ * No acelera nada: el ciclo sigue tardando lo mismo. Lo que cambia es lo que ve la persona.
+ * Hoy manda un mensaje y no pasa nada durante ~25 s, sin ninguna señal de que el bot lo
+ * recibio; con esto ve los tildes azules y el «escribiendo…» en menos de un segundo, y la
+ * espera deja de parecer que el bot se colgo.
+ *
+ * Meta lo baja solo cuando llega la respuesta o a los 25 s, lo que pase primero. Por eso solo
+ * se llama cuando efectivamente vamos a contestar: si el bot no fuera a responder, el indicador
+ * quedaria mintiendo hasta que expire.
+ *
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators/
+ */
+export async function sendWhatsAppTypingIndicator(params: {
+  phoneNumberId: string;
+  accessToken: string;
+  /** `wamid` del mensaje entrante que se esta contestando. */
+  waMessageId: string;
+  graphVersion?: string;
+}): Promise<SendWhatsAppTextResult> {
+  return sendWhatsAppPayload(params, {
+    messaging_product: "whatsapp",
+    status: "read",
+    message_id: params.waMessageId,
+    typing_indicator: { type: "text" },
+  });
+}
+
 export async function sendWhatsAppText(
   params: SendWhatsAppTextParams
 ): Promise<SendWhatsAppTextResult> {

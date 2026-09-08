@@ -6,6 +6,7 @@ import { createFlowEngine } from "@/lib/chat/flow-engine-service";
 import { flowTrace } from "@/lib/chat/flow-trace-log";
 import { persistInboundChatMessageAndBump } from "@/lib/chat/incoming-message-service";
 import { fetchMedido } from "@/lib/chat/webhook-timing";
+import { sendWhatsAppTypingIndicator } from "@/lib/chat/whatsapp-send-service";
 import { procesarModoVentaVendedor } from "@/lib/chat/venta-vendedor-whatsapp";
 import { isSingleClientMode } from "@/lib/instance/single-client";
 import { assignConversation } from "@/lib/chat/assign-conversation-service";
@@ -365,6 +366,12 @@ type WhatsappChannelRow = {
   empresa_id: string;
   meta_phone_number_id: string;
   activo: boolean | null;
+  /**
+   * Se trae junto con el resto del canal (no cuesta una consulta aparte) para poder mostrar
+   * «escribiendo…» apenas entra el mensaje, antes de todo el trabajo del flujo.
+   * Ausente en el camino de eventos de estado, que no manda nada.
+   */
+  whatsapp_access_token?: string | null;
 };
 
 type StatusChannelContext = {
@@ -394,7 +401,7 @@ async function pgLoadWhatsappChannelById(
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const qt = quoteSchemaTable(schema, "chat_channels");
   const r = await pool.query(
-    `SELECT id::text, empresa_id::text, meta_phone_number_id::text, activo
+    `SELECT id::text, empresa_id::text, meta_phone_number_id::text, activo, whatsapp_access_token
      FROM ${qt}
      WHERE id = $1::uuid AND empresa_id = $2::uuid
      LIMIT 1`,
@@ -407,6 +414,8 @@ async function pgLoadWhatsappChannelById(
     empresa_id: String(row.empresa_id),
     meta_phone_number_id: String(row.meta_phone_number_id ?? ""),
     activo: row.activo === null || row.activo === undefined ? null : Boolean(row.activo),
+    whatsapp_access_token:
+      typeof row.whatsapp_access_token === "string" ? row.whatsapp_access_token : null,
   };
 }
 
@@ -442,7 +451,7 @@ async function findWhatsappChannelInTenantSchemas(
         const sch = assertAllowedChatDataSchema(schema);
         const qt = quoteSchemaTable(sch, "chat_channels");
         const r = await pool.query(
-          `SELECT id::text, empresa_id::text, meta_phone_number_id::text, activo
+          `SELECT id::text, empresa_id::text, meta_phone_number_id::text, activo, whatsapp_access_token
            FROM ${qt}
            WHERE meta_phone_number_id = $1 AND empresa_id = $2::uuid
            LIMIT 1`,
@@ -455,6 +464,8 @@ async function findWhatsappChannelInTenantSchemas(
             empresa_id: String(row.empresa_id),
             meta_phone_number_id: String(row.meta_phone_number_id ?? ""),
             activo: row.activo === null || row.activo === undefined ? null : Boolean(row.activo),
+            whatsapp_access_token:
+              typeof row.whatsapp_access_token === "string" ? row.whatsapp_access_token : null,
           };
           return {
             channel,
@@ -474,7 +485,7 @@ async function findWhatsappChannelInTenantSchemas(
     const tenantSb = createServiceRoleClientWithDbSchema(schema, fetchMedido) as SupabaseAdmin;
     const { data: ch, error: chErr } = await tenantSb
       .from("chat_channels")
-      .select("id, empresa_id, meta_phone_number_id, activo")
+      .select("id, empresa_id, meta_phone_number_id, activo, whatsapp_access_token")
       .eq("meta_phone_number_id", phoneNumberId)
       .eq("empresa_id", e.id)
       .maybeSingle();
@@ -548,7 +559,7 @@ export async function processInboundWebhookValue(
           : (createServiceRoleClientWithDbSchema(schema, fetchMedido) as SupabaseAdmin);
       const { data: chT, error: errT } = await dataSupabase
         .from("chat_channels")
-        .select("id, empresa_id, meta_phone_number_id, activo")
+        .select("id, empresa_id, meta_phone_number_id, activo, whatsapp_access_token")
         .eq("id", r.channel_id)
         .maybeSingle();
       if (errT) {
@@ -573,7 +584,7 @@ export async function processInboundWebhookValue(
   } else {
     const { data: ch0, error: chErr } = await catalogSupabase
       .from("chat_channels")
-      .select("id, empresa_id, meta_phone_number_id, activo")
+      .select("id, empresa_id, meta_phone_number_id, activo, whatsapp_access_token")
       .eq("meta_phone_number_id", phoneNumberId)
       .maybeSingle();
 
@@ -630,7 +641,7 @@ export async function processInboundWebhookValue(
               : (createServiceRoleClientWithDbSchema(schema, fetchMedido) as SupabaseAdmin);
           const { data: chTenant } = await dataSupabase
             .from("chat_channels")
-            .select("id, empresa_id, meta_phone_number_id, activo")
+            .select("id, empresa_id, meta_phone_number_id, activo, whatsapp_access_token")
             .eq("id", r.channel_id)
             .maybeSingle();
           channel = chTenant as WhatsappChannelRow | null;
@@ -638,7 +649,7 @@ export async function processInboundWebhookValue(
       } else {
         const { data: ch1 } = await catalogSupabase
           .from("chat_channels")
-          .select("id, empresa_id, meta_phone_number_id, activo")
+          .select("id, empresa_id, meta_phone_number_id, activo, whatsapp_access_token")
           .eq("meta_phone_number_id", phoneNumberId)
           .maybeSingle();
         channel = ch1 as WhatsappChannelRow | null;
@@ -889,6 +900,37 @@ export async function processInboundWebhookValue(
       }
 
       const conversationId = existingConv.id as string;
+
+      /**
+       * Tildes azules y «escribiendo…», apenas se sabe que el bot es el que va a contestar.
+       *
+       * El ciclo tarda lo mismo; lo que cambia es que la persona deja de mirar una pantalla
+       * muda durante los segundos que el bot piensa. Va sin `await` a proposito: es un aviso, y
+       * hacerlo esperar retrasaria la respuesta de verdad. Si falla, el flujo sigue igual.
+       *
+       * No se manda si la conversacion la tomo una persona: ahi el bot no responde, y Meta baja
+       * el indicador recien a los 25 s, asi que estaria avisando de una respuesta que no viene.
+       */
+      const tokenCanal =
+        channel.whatsapp_access_token?.trim() || process.env.WHATSAPP_TOKEN?.trim();
+      const laAtiendeUnaPersona = Boolean(
+        (existingConv as { human_taken_over?: boolean | null }).human_taken_over
+      );
+      if (tokenCanal && !laAtiendeUnaPersona) {
+        void sendWhatsAppTypingIndicator({
+          phoneNumberId,
+          accessToken: tokenCanal,
+          waMessageId: waMid,
+        })
+          .then((r) => {
+            if (!r.ok) console.warn(WH_MSG, "typing_indicator_error", { error: r.error });
+          })
+          .catch((e) => {
+            console.warn(WH_MSG, "typing_indicator_error", {
+              error: e instanceof Error ? e.message : String(e),
+            });
+          });
+      }
 
       /**
        * Early-persist (single_client): guardar el inbound INMEDIATAMENTE (idempotente), antes de
