@@ -383,22 +383,53 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
 
     console.info("[sorteo-ticket] render_start", { deliveryId: rowId, entradaId });
 
-    const empresaNombre = await loadEmpresaNombre(empresaId);
     const bgPath = sorteoTicketAssetBackgroundPath(empresaId, sorteoId);
+
+    /**
+     * Se piden todos los candidatos a la vez y gana el primero de la lista que exista, igual
+     * que cuando se probaban de a uno. Buscarlos en orden costaba una ida y vuelta por cada
+     * archivo que no estaba, y el storage esta a ~150 ms: quien sube un jpg pagaba dos
+     * descargas fallidas antes de la buena. Pedirlos juntos cuesta una sola espera.
+     */
+    const primerAssetDisponible = async (
+      bucket: string,
+      candidatos: string[]
+    ): Promise<{ dl: { bytes: Buffer; mime: string }; path: string } | null> => {
+      const bajados = await Promise.all(
+        candidatos.map((p) => downloadAssetIfExists(supabase, bucket, p))
+      );
+      const i = bajados.findIndex((d) => d != null);
+      return i === -1 ? null : { dl: bajados[i]!, path: candidatos[i]! };
+    };
+
     /**
      * El logo se guarda como png, webp o jpg según el archivo que suban, así que hay que
      * buscarlo en las tres. Antes solo se miraban png y webp: quien subía un jpg no veía
      * ningún cambio, porque el archivo quedaba guardado pero nadie lo leía.
      */
-    let logoDl: { bytes: Buffer; mime: string } | null = null;
-    let logoUsado: string | null = null;
-    for (const candidato of sorteoTicketAssetLogoCandidates(empresaId, sorteoId)) {
-      logoDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, candidato);
-      if (logoDl) {
-        logoUsado = candidato;
-        break;
-      }
-    }
+    const templateBucket =
+      config.custom_template_storage_bucket?.trim() || SORTEO_TICKET_ASSETS_BUCKET;
+    const templatePath = config.custom_template_storage_path?.trim();
+    const usaTemplate = (config.design_mode ?? "auto") === "custom_template";
+
+    /**
+     * El nombre de la empresa, el logo, el fondo y la plantilla no dependen unos de otros:
+     * se piden juntos en vez de encadenarlos.
+     */
+    const [empresaNombre, logoHit, bgDl, templateConfigDl] = await Promise.all([
+      loadEmpresaNombre(empresaId),
+      primerAssetDisponible(
+        SORTEO_TICKET_ASSETS_BUCKET,
+        sorteoTicketAssetLogoCandidates(empresaId, sorteoId)
+      ),
+      downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, bgPath),
+      usaTemplate && templatePath
+        ? downloadAssetIfExists(supabase, templateBucket, templatePath)
+        : Promise.resolve(null),
+    ]);
+
+    const logoDl = logoHit?.dl ?? null;
+    const logoUsado = logoHit?.path ?? null;
     /** Queda en el log cuál archivo se uso: es lo unico que despeja un «subi el logo y no cambio». */
     console.info("[sorteo-ticket] logo", {
       sorteoId,
@@ -406,21 +437,16 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       bytes: logoDl?.bytes.length ?? 0,
       mime: logoDl?.mime ?? null,
     });
-    const bgDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, bgPath);
 
-    let templateDl: { bytes: Buffer; mime: string } | null = null;
-    if ((config.design_mode ?? "auto") === "custom_template") {
-      const tb = config.custom_template_storage_bucket?.trim() || SORTEO_TICKET_ASSETS_BUCKET;
-      const tp = config.custom_template_storage_path?.trim();
-      if (tp) {
-        templateDl = await downloadAssetIfExists(supabase, tb, tp);
-      }
-      if (!templateDl) {
-        for (const cand of sorteoTicketAssetTemplateCandidates(empresaId, sorteoId)) {
-          templateDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, cand);
-          if (templateDl) break;
-        }
-      }
+    let templateDl: { bytes: Buffer; mime: string } | null = templateConfigDl;
+    if (usaTemplate && !templateDl) {
+      templateDl =
+        (
+          await primerAssetDisponible(
+            SORTEO_TICKET_ASSETS_BUCKET,
+            sorteoTicketAssetTemplateCandidates(empresaId, sorteoId)
+          )
+        )?.dl ?? null;
     }
 
     const fechaHora = new Date().toLocaleString("es-PY", {

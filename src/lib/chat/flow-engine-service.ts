@@ -1780,6 +1780,34 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     }
   }
 
+  /**
+   * Varios valores de `chat_flow_data` de la sesión activa, en una sola consulta.
+   *
+   * La base esta a ~150 ms de ida y vuelta del servidor, asi que guardar campo por campo
+   * costaba esos 150 ms multiplicado por la cantidad de campos. Un `upsert` de varias filas
+   * con el mismo `onConflict` deja el resultado identico y paga la distancia una sola vez.
+   */
+  async function guardarCamposDeFlujo(input: {
+    empresaId: string;
+    conversationId: string;
+    flowCode: string;
+    flowSessionId: string;
+    campos: Array<{ campo: string; valor: string }>;
+  }): Promise<void> {
+    if (input.campos.length === 0) return;
+    await supabase.from("chat_flow_data").upsert(
+      input.campos.map(({ campo, valor }) => ({
+        empresa_id: input.empresaId,
+        conversation_id: input.conversationId,
+        flow_code: input.flowCode,
+        flow_session_id: input.flowSessionId,
+        field_name: campo,
+        field_value: valor,
+      })),
+      { onConflict: "flow_session_id,field_name" }
+    );
+  }
+
   /** Un valor en `chat_flow_data` de la sesión activa. */
   async function guardarCampoDeFlujo(input: {
     empresaId: string;
@@ -1789,17 +1817,13 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     campo: string;
     valor: string;
   }): Promise<void> {
-    await supabase.from("chat_flow_data").upsert(
-      {
-        empresa_id: input.empresaId,
-        conversation_id: input.conversationId,
-        flow_code: input.flowCode,
-        flow_session_id: input.flowSessionId,
-        field_name: input.campo,
-        field_value: input.valor,
-      },
-      { onConflict: "flow_session_id,field_name" }
-    );
+    await guardarCamposDeFlujo({
+      empresaId: input.empresaId,
+      conversationId: input.conversationId,
+      flowCode: input.flowCode,
+      flowSessionId: input.flowSessionId,
+      campos: [{ campo: input.campo, valor: input.valor }],
+    });
   }
 
   /**
@@ -1917,12 +1941,22 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         return { flowData: fd, preguntoAhora: false };
       }
 
-      for (const [campo, valor] of Object.entries(plan.valores)) {
-        await guardar(campo, valor);
-        fd[campo] = valor;
-      }
       const pendientes = plan.pendientes.join(",");
-      await guardar(CAMPO_PRECARGA_PENDIENTES, pendientes);
+      /**
+       * Todo junto: los valores precargados y la lista de pendientes son escrituras
+       * independientes entre si, y antes cada una era una ida y vuelta propia a la base.
+       */
+      await guardarCamposDeFlujo({
+        empresaId: input.empresaId,
+        conversationId: input.conversationId,
+        flowCode: input.flowCode,
+        flowSessionId: input.flowSessionId,
+        campos: [
+          ...Object.entries(plan.valores).map(([campo, valor]) => ({ campo, valor })),
+          { campo: CAMPO_PRECARGA_PENDIENTES, valor: pendientes },
+        ],
+      });
+      for (const [campo, valor] of Object.entries(plan.valores)) fd[campo] = valor;
       fd[CAMPO_PRECARGA_PENDIENTES] = pendientes;
 
       /*
@@ -2665,29 +2699,24 @@ ${texto}` : prefijo;
       const sidDatos = state.active_flow_session_id?.trim() ?? "";
       const confirma = params.metaButtonId === BOTONES_DATOS_GUARDADOS.confirmar;
       if (sidDatos) {
-        await guardarCampoDeFlujo({
+        /*
+         * Cuando quiere cargar otros datos se vacía además la lista de pendientes, para que no
+         * se saltee ninguna pregunta. Los valores precargados quedan escritos, pero cada
+         * respuesta nueva los pisa, que es justamente lo que la persona pidió.
+         *
+         * Las dos escrituras van juntas: son la misma tabla y el mismo `onConflict`, y separarlas
+         * costaba una ida y vuelta extra a la base por cada una.
+         */
+        await guardarCamposDeFlujo({
           empresaId: state.empresa_id,
           conversationId: state.id,
           flowCode: state.flow_code,
           flowSessionId: sidDatos,
-          campo: CAMPO_PRECARGA_CONFIRMADA,
-          valor: confirma ? "si" : "no",
+          campos: [
+            { campo: CAMPO_PRECARGA_CONFIRMADA, valor: confirma ? "si" : "no" },
+            ...(confirma ? [] : [{ campo: CAMPO_PRECARGA_PENDIENTES, valor: "" }]),
+          ],
         });
-        if (!confirma) {
-          /*
-           * Quiere cargar otros datos: se vacía la lista de pendientes para que no se saltee
-           * ninguna pregunta. Los valores precargados quedan escritos, pero cada respuesta
-           * nueva los pisa, que es justamente lo que la persona pidió.
-           */
-          await guardarCampoDeFlujo({
-            empresaId: state.empresa_id,
-            conversationId: state.id,
-            flowCode: state.flow_code,
-            flowSessionId: sidDatos,
-            campo: CAMPO_PRECARGA_PENDIENTES,
-            valor: "",
-          });
-        }
       }
       await insertFlowEvent({
         empresaId: state.empresa_id,

@@ -4,8 +4,11 @@ import { NextRequest, NextResponse, after } from "next/server";
 import type { WebhookProvisionEnv } from "@/lib/chat/channel-provision";
 import { verifyMetaSignature } from "@/lib/chat/meta-signature";
 import { processWhatsAppWebhookBody } from "@/lib/chat/whatsapp-webhook-service";
-import { medirEtapa } from "@/lib/chat/webhook-timing";
+import { fetchMedido } from "@/lib/chat/webhook-timing";
 import { medirWebhook, msDesdeArranqueDelProceso } from "@/lib/chat/webhook-timing-node";
+
+/** Desde cuanto un ciclo merece el desglose por consulta. Un evento de estado ronda los 600 ms. */
+const UMBRAL_DESGLOSE_MS = 2000;
 
 export function getSupabaseAdminForWebhooks(): AppSupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -18,7 +21,7 @@ export function getSupabaseAdminForWebhooks(): AppSupabaseClient {
      * que mas se sospecha: son muchas consultas secuenciales y cada una paga la distancia
      * entre la funcion de Vercel y la base.
      */
-    global: { fetch: (...args: Parameters<typeof fetch>) => medirEtapa("db", () => fetch(...args)) },
+    global: { fetch: fetchMedido },
   }) as AppSupabaseClient;
 }
 
@@ -124,7 +127,7 @@ export async function handleWhatsAppWebhookPost(request: NextRequest): Promise<N
          * El reparto del tiempo se registra siempre: la demora solo se puede atribuir viendo
          * cuanto se va en la base, cuanto en Meta y cuanto en el arranque de la instancia.
          */
-        const { resultado: result, resumen } = await medirWebhook(() =>
+        const { resultado: result, resumen, detalle } = await medirWebhook(() =>
           processWhatsAppWebhookBody(supabase, body, provisionEnv)
         );
         console.info("[webhooks/whatsapp][tiempos]", {
@@ -132,6 +135,19 @@ export async function handleWhatsAppWebhookPost(request: NextRequest): Promise<N
           arranque_ms: Math.round(msDesdeArranqueDelProceso()),
           mensajes: result.processed,
         });
+
+        /**
+         * Desglose por consulta, solo en los ciclos que de verdad tardaron. Los eventos de
+         * estado (`delivered`/`read`) son una consulta y no aportan nada al log; un ciclo lento
+         * son ~130 consultas y sin saber cuales son no hay como decidir que agrupar.
+         */
+        if ((resumen.total_ms ?? 0) >= UMBRAL_DESGLOSE_MS && detalle.length > 0) {
+          console.info("[webhooks/whatsapp][tiempos-detalle]", {
+            total_ms: resumen.total_ms,
+            consultas: detalle.length,
+            top: detalle.slice(0, 15).map((d) => `${d.consulta} x${d.n} ${d.ms}ms`),
+          });
+        }
 
         if (result.errors.length > 0) {
           console.warn("[webhooks/whatsapp][POST] resultado con errores/advertencias", {

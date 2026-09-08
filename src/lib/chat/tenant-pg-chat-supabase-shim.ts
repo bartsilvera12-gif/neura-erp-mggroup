@@ -3,15 +3,18 @@ import type { SupabaseAdmin } from "@/lib/chat/types";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import { quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
-import { medirEtapa } from "@/lib/chat/webhook-timing";
+import { etiquetaDeSql, medirConsulta } from "@/lib/chat/webhook-timing";
 
-/** Igual que `pool.query`, sumando su duración a la etapa `db` del webhook medido. */
+/**
+ * Igual que `pool.query`, sumando su duración a la etapa `db` del webhook medido y anotando
+ * que tabla y que operacion fue, para el desglose de los ciclos lentos.
+ */
 async function consultaMedida(
   pool: Pool,
   texto: string,
   params?: unknown[]
 ): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }> {
-  return medirEtapa("db", () => pool.query(texto, params as never[])) as never;
+  return medirConsulta(etiquetaDeSql(texto), () => pool.query(texto, params as never[])) as never;
 }
 
 /**

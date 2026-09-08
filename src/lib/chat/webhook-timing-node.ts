@@ -12,18 +12,27 @@ import { registrarImplementacionDeMedicion } from "@/lib/chat/webhook-timing";
 type Acumulador = {
   /** ms acumulados y cantidad de llamadas, por etapa. */
   etapas: Map<string, { ms: number; n: number }>;
+  /** Lo mismo, pero por consulta concreta (`tabla:operacion`). */
+  detalle: Map<string, { ms: number; n: number }>;
   inicio: number;
 };
 
 const almacen = new AsyncLocalStorage<Acumulador>();
 
+function sumar(mapa: Map<string, { ms: number; n: number }>, clave: string, ms: number): void {
+  const prev = mapa.get(clave) ?? { ms: 0, n: 0 };
+  mapa.set(clave, { ms: prev.ms + ms, n: prev.n + 1 });
+}
+
 registrarImplementacionDeMedicion({
   activa: () => almacen.getStore() != null,
   acumular: (etapa, ms) => {
     const acc = almacen.getStore();
-    if (!acc) return;
-    const prev = acc.etapas.get(etapa) ?? { ms: 0, n: 0 };
-    acc.etapas.set(etapa, { ms: prev.ms + ms, n: prev.n + 1 });
+    if (acc) sumar(acc.etapas, etapa, ms);
+  },
+  detallar: (etiqueta, ms) => {
+    const acc = almacen.getStore();
+    if (acc) sumar(acc.detalle, etiqueta, ms);
   },
 });
 
@@ -35,8 +44,8 @@ export type ResumenWebhook = Record<string, number>;
  */
 export async function medirWebhook<T>(
   fn: () => Promise<T>
-): Promise<{ resultado: T; resumen: ResumenWebhook }> {
-  const acc: Acumulador = { etapas: new Map(), inicio: Date.now() };
+): Promise<{ resultado: T; resumen: ResumenWebhook; detalle: DetalleConsulta[] }> {
+  const acc: Acumulador = { etapas: new Map(), detalle: new Map(), inicio: Date.now() };
   const resultado = await almacen.run(acc, fn);
 
   const total = Date.now() - acc.inicio;
@@ -48,8 +57,16 @@ export async function medirWebhook<T>(
     medido += v.ms;
   }
   resumen.resto_ms = Math.max(0, total - medido);
-  return { resultado, resumen };
+
+  const detalle = [...acc.detalle.entries()]
+    .map(([consulta, v]) => ({ consulta, ms: v.ms, n: v.n }))
+    .sort((a, b) => b.ms - a.ms);
+
+  return { resultado, resumen, detalle };
 }
+
+/** Una consulta (o familia de consultas) del ciclo, con lo que costo en total. */
+export type DetalleConsulta = { consulta: string; ms: number; n: number };
 
 /**
  * Milisegundos desde que arranco este proceso.

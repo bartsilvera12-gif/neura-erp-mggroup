@@ -15,6 +15,8 @@
 export type MedicionImpl = {
   /** Acumulador activo, o null si no hay medicion en curso. */
   acumular: (etapa: string, ms: number) => void;
+  /** Detalle por consulta (que tabla y que operacion), para el desglose de los ciclos lentos. */
+  detallar: (etiqueta: string, ms: number) => void;
   activa: () => boolean;
 };
 
@@ -48,7 +50,54 @@ export async function medirEtapa<T>(etapa: string, fn: () => Promise<T>): Promis
 }
 
 /**
+ * Igual que `medirEtapa("db", …)`, anotando ademas que consulta fue.
+ *
+ * El reparto por etapas dice que el 80 % del ciclo se va en la base, pero no cuales de las
+ * ~130 consultas son. Sin eso, agrupar o paralelizar es adivinar cual conviene tocar.
+ */
+export async function medirConsulta<T>(etiqueta: string, fn: () => Promise<T>): Promise<T> {
+  if (!impl?.activa()) return fn();
+  const t0 = Date.now();
+  try {
+    return await fn();
+  } finally {
+    const ms = Date.now() - t0;
+    impl.acumular("db", ms);
+    impl.detallar(etiqueta, ms);
+  }
+}
+
+/** `tabla:operacion` a partir del SQL, para agrupar el detalle. Best-effort: es solo para el log. */
+export function etiquetaDeSql(sql: string): string {
+  const s = sql.trim().replace(/\s+/g, " ");
+  const op = /^(select|insert|update|delete|with)/i.exec(s)?.[1]?.toLowerCase() ?? "otro";
+  const tabla =
+    /(?:from|into|update|join)\s+"?([a-z0-9_]+)"?\."?([a-z0-9_]+)"?/i.exec(s)?.[2] ??
+    /(?:from|into|update|join)\s+"?([a-z0-9_]+)"?/i.exec(s)?.[1] ??
+    "?";
+  return `${tabla}:${op}`;
+}
+
+/** `recurso:metodo` a partir de una URL de PostgREST (`/rest/v1/<tabla>?…`). */
+export function etiquetaDeUrlPostgrest(url: string, metodo: string): string {
+  const m = /\/rest\/v1\/(?:rpc\/)?([a-z0-9_]+)/i.exec(url);
+  const esRpc = /\/rest\/v1\/rpc\//i.test(url);
+  const recurso = m?.[1] ?? (/\/storage\/v1\//i.test(url) ? "storage" : "?");
+  return `${esRpc ? "rpc." : ""}${recurso}:${metodo.toLowerCase()}`;
+}
+
+/**
  * `fetch` que le suma su duracion a la etapa `db`. Se le pasa a los clientes Supabase del
  * webhook para medir todo PostgREST sin tocar las consultas una por una.
  */
-export const fetchMedido: typeof fetch = (...args) => medirEtapa("db", () => fetch(...args));
+export const fetchMedido: typeof fetch = (...args) => {
+  const [entrada, init] = args;
+  const url =
+    typeof entrada === "string"
+      ? entrada
+      : entrada instanceof URL
+        ? entrada.href
+        : (entrada as Request).url;
+  const metodo = init?.method ?? (entrada as Request)?.method ?? "GET";
+  return medirConsulta(etiquetaDeUrlPostgrest(url, metodo), () => fetch(...args));
+};
