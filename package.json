@@ -61,7 +61,8 @@
     "qa:datos-guardados": "tsx --conditions=react-server scripts/qa-sorteo-datos-guardados.ts",
     "qa:ticket-por-boleto": "tsx scripts/qa-ticket-por-boleto.tsx",
     "qa:comprobante-monto": "tsx --conditions=react-server scripts/qa-comprobante-monto.ts",
-    "qa:comprobante-reenviado": "tsx --conditions=react-server scripts/qa-comprobante-reenviado.ts"
+    "qa:comprobante-reenviado": "tsx --conditions=react-server scripts/qa-comprobante-reenviado.ts",
+    "qa:ocr-referencia": "tsx --conditions=react-server scripts/qa-ocr-referencia.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
