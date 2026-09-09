@@ -20,6 +20,8 @@ export default function TicketPage() {
   const [cfg, setCfg] = useState<ConfigTicket>(CONFIG_TICKET_DEFECTO);
   const [datos, setDatos] = useState<DatosTicket | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /** El error del PIN es el único con salida propia: mandarlo a cargarlo y traerlo de vuelta. */
+  const [pidePin, setPidePin] = useState(false);
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
@@ -34,6 +36,10 @@ export default function TicketPage() {
           error?: string;
         };
         if (!res.ok || !json.success || !json.data) {
+          /** 401 con sesión de vendedor válida = falta el desbloqueo por PIN. */
+          if (!cancelado && res.status === 401 && /pin/i.test(json.error ?? "")) {
+            setPidePin(true);
+          }
           throw new Error(json.error || "No se pudo cargar el ticket.");
         }
         if (!cancelado) {
@@ -104,9 +110,35 @@ export default function TicketPage() {
 
       {cargando && <p className="no-imprimir px-4 text-center text-sm text-slate-500">Cargando…</p>}
 
+      {/*
+        Con error no se dibujaba ningún botón: ni imprimir ni volver. El vendedor quedaba en una
+        pantalla muerta con un cartel, salía con el botón del navegador y lo único que le
+        aparecía era «Nueva venta», como si imprimir no existiera.
+
+        El caso frecuente es el PIN: el POS lo pide cada 12 h y esta pantalla no tenía dónde
+        cargarlo, así que la única salida era abandonar el ticket. Ahora lleva a cargarlo y
+        vuelve acá solo.
+      */}
       {err && (
-        <div className="no-imprimir mx-auto max-w-[360px] rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-          {err}
+        <div className="no-imprimir mx-auto max-w-[360px] space-y-3">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            {err}
+          </div>
+          {pidePin ? (
+            <a
+              href={`/rv?volver=${encodeURIComponent(`/ticket/${id}`)}`}
+              className="block w-full rounded-xl bg-[#1e2a5a] py-4 text-center text-lg font-bold text-white"
+            >
+              Ingresar mi PIN
+            </a>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => window.history.back()}
+            className="w-full rounded-xl border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-800"
+          >
+            ← Volver
+          </button>
         </div>
       )}
 

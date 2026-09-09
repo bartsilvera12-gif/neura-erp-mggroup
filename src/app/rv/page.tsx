@@ -5,9 +5,27 @@ import RevendedorPosShell from "./RevendedorPosShell";
 
 export const dynamic = "force-dynamic";
 
-export default async function RevendedorPosPage() {
+/**
+ * A dónde volver después de cargar el PIN.
+ *
+ * Solo se acepta la pantalla de impresión de un ticket, y con la forma exacta
+ * `/ticket/<id>`: cualquier otra cosa se ignora. Un `volver` libre sería un redirector
+ * abierto —basta pasarle otro destino en el link— y este link se comparte por WhatsApp.
+ */
+function volverSeguro(raw: string | undefined): string | null {
+  const v = (raw ?? "").trim();
+  return /^\/ticket\/[A-Za-z0-9-]{1,64}$/.test(v) ? v : null;
+}
+
+export default async function RevendedorPosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ volver?: string }>;
+}) {
   const ctx = await readRevendedorSession();
   if (!ctx) redirect("/rv/invalido");
+
+  const volver = volverSeguro((await searchParams).volver);
 
   /**
    * El estado del PIN se resuelve en el servidor para no mostrar el POS un instante antes de
@@ -21,6 +39,7 @@ export default async function RevendedorPosPage() {
   return (
     <RevendedorPosShell
       debePedirPin={debePedirPin}
+      volverTrasDesbloquear={volver}
       vendedorNombre={ctx.nombre}
       numeroVendedor={ctx.numeroVendedor}
       pos={{
