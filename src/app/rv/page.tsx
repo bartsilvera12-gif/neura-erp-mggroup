@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
-import { readRevendedorSession, getRevendedorSaldo } from "@/lib/sorteos/revendedor-session";
+import {
+  readRevendedorSession,
+  getRevendedorSaldo,
+  getRevendedorUltimasVentas,
+} from "@/lib/sorteos/revendedor-session";
 import { posDesbloqueado } from "@/lib/sorteos/revendedor-pin-session";
 import RevendedorPosShell from "./RevendedorPosShell";
 
@@ -34,7 +38,10 @@ export default async function RevendedorPosPage({
   const debePedirPin =
     ctx.exigePin && !(await posDesbloqueado(ctx.revendedorId, ctx.pinActualizadoAt));
 
-  const saldo = await getRevendedorSaldo(ctx);
+  const [saldo, ultimasVentas] = await Promise.all([
+    getRevendedorSaldo(ctx),
+    getRevendedorUltimasVentas(ctx),
+  ]);
 
   return (
     <RevendedorPosShell
@@ -52,6 +59,7 @@ export default async function RevendedorPosPage({
         boletosVendidos: saldo.boletosVendidos,
         cupoRestante: saldo.cupoRestante,
         saldoARendir: saldo.saldoARendir,
+        ultimasVentas,
       }}
     />
   );

@@ -13,6 +13,21 @@ type Props = {
   boletosVendidos: number;
   cupoRestante: number | null;
   saldoARendir: number;
+  /**
+   * Últimas ventas del vendedor, para reimprimir.
+   *
+   * Vienen del servidor y no del estado de la pantalla: el botón de imprimir solo existía en
+   * la vista que aparece justo después de vender, y esa se pierde al volver atrás o recargar.
+   * Sin esto, la única forma de recuperarlo era cargar la venta otra vez, y salía duplicada.
+   */
+  ultimasVentas?: {
+    entradaId: string;
+    numeroOrden: number | null;
+    cliente: string;
+    cupones: string[];
+    monto: number;
+    creadaIso: string;
+  }[];
 };
 
 type SaleResult = {
@@ -79,6 +94,7 @@ export default function RevendedorPosClient(props: Props) {
    * es cuando de verdad empieza otra.
    */
   const [idemKey, setIdemKey] = useState<string>(newIdemKey);
+  const ultimasVentas = props.ultimasVentas ?? [];
 
   /**
    * Autocompleta nombre, teléfono y ciudad desde una compra anterior con ese documento.
@@ -342,6 +358,42 @@ export default function RevendedorPosClient(props: Props) {
             >
               RESERVAR {qty > 0 ? `${qty} BOLETO${qty === 1 ? "" : "S"}` : ""}
             </button>
+
+            {/*
+              Reimprimir sin volver a vender.
+
+              El botón de imprimir solo aparecía en la pantalla que sigue a la venta, y esa se
+              pierde al volver atrás o recargar. Si el papel salió mal o la impresora estaba
+              apagada, la única forma de recuperar el botón era cargar la venta de nuevo — y
+              entraba duplicada, con otros números y cobrada dos veces.
+            */}
+            {ultimasVentas.length > 0 ? (
+              <div className="rounded-2xl bg-white p-3 shadow-sm">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Reimprimir una venta
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {ultimasVentas.map((v) => (
+                    <div key={v.entradaId} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-800">
+                          {v.cliente || "Sin nombre"}
+                        </div>
+                        <div className="truncate font-mono text-[11px] text-slate-500">
+                          {v.cupones.join("  ") || "—"}
+                        </div>
+                      </div>
+                      <a
+                        href={`/ticket/${v.entradaId}`}
+                        className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+                      >
+                        🖨 Imprimir
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </>
         )}
 

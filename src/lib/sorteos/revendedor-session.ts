@@ -131,17 +131,88 @@ export type RevendedorSaldo = {
  * Agregados del revendedor: boletos vendidos (para cupo) y saldo a rendir
  * (ventas efectivo atribuidas - rendiciones registradas).
  */
+export type VentaReciente = {
+  entradaId: string;
+  numeroOrden: number | null;
+  cliente: string;
+  cupones: string[];
+  monto: number;
+  creadaIso: string;
+};
+
+/**
+ * Últimas ventas del vendedor, para poder reimprimirlas.
+ *
+ * El POS solo mostraba el botón de imprimir en la pantalla que aparece justo después de
+ * vender, y eso vive en memoria: al volver atrás, recargar o reabrir el link se perdía y no
+ * quedaba ninguna forma de reimprimir. La única manera de recuperar el botón era volver a
+ * cargar la venta — y ahí salía duplicada.
+ *
+ * Se excluyen las anuladas: reimprimir una venta dada de baja es entregar un boleto que ya no
+ * vale.
+ */
+export async function getRevendedorUltimasVentas(
+  ctx: RevendedorPosContext,
+  limite = 10
+): Promise<VentaReciente[]> {
+  const sp = schemaAndPool();
+  if (!sp) return [];
+  const qtEnt = quoteSchemaTable(sp.schema, "sorteo_entradas");
+  const qtCup = quoteSchemaTable(sp.schema, "sorteo_cupones");
+  try {
+    const r = await sp.pool.query(
+      `SELECT e.id::text AS id, e.numero_orden, e.nombre_participante, e.monto_total,
+              e.created_at,
+              COALESCE(
+                (SELECT array_agg(c.numero_cupon ORDER BY c.numero_cupon)
+                   FROM ${qtCup} c WHERE c.entrada_id = e.id),
+                ARRAY[]::text[]
+              ) AS cupones
+         FROM ${qtEnt} e
+        WHERE e.revendedor_id = $1::uuid
+          AND e.estado_pago <> 'rechazado'
+        ORDER BY e.created_at DESC
+        LIMIT $2::int`,
+      [ctx.revendedorId, Math.min(50, Math.max(1, limite))]
+    );
+    return (r.rows ?? []).map((raw) => {
+      const row = raw as Record<string, unknown>;
+      return {
+        entradaId: String(row.id),
+        numeroOrden: typeof row.numero_orden === "number" ? row.numero_orden : null,
+        cliente: String(row.nombre_participante ?? "").trim(),
+        cupones: Array.isArray(row.cupones) ? (row.cupones as unknown[]).map(String) : [],
+        monto: Number(row.monto_total ?? 0) || 0,
+        creadaIso:
+          row.created_at instanceof Date
+            ? row.created_at.toISOString()
+            : String(row.created_at ?? ""),
+      };
+    });
+  } catch {
+    /** Sin la lista el POS sigue vendiendo: es una ayuda, no parte de la venta. */
+    return [];
+  }
+}
+
 export async function getRevendedorSaldo(ctx: RevendedorPosContext): Promise<RevendedorSaldo> {
   const sp = schemaAndPool();
   if (!sp) return { boletosVendidos: 0, cupoRestante: ctx.cupoBoletos, saldoARendir: 0 };
   const qtEnt = quoteSchemaTable(sp.schema, "sorteo_entradas");
   const qtRen = quoteSchemaTable(sp.schema, "sorteo_revendedor_rendiciones");
 
+  /**
+   * Se descarta por 'rechazado', no por 'cancelado'.
+   *
+   * Ese estado no existe: la tabla solo admite pendiente, pendiente_revision, confirmado y
+   * rechazado. El filtro anterior no descartaba nada, asi que una venta anulada le seguia
+   * contando al vendedor en la rendicion y en el cupo.
+   */
   const vend = await sp.pool.query(
     `SELECT COALESCE(SUM(cantidad_boletos),0)::int AS boletos,
             COALESCE(SUM(monto_total) FILTER (WHERE pago_metodo = 'efectivo'),0)::numeric AS efectivo
        FROM ${qtEnt}
-      WHERE revendedor_id = $1::uuid AND estado_pago <> 'cancelado'`,
+      WHERE revendedor_id = $1::uuid AND estado_pago <> 'rechazado'`,
     [ctx.revendedorId]
   );
   const rend = await sp.pool.query(
