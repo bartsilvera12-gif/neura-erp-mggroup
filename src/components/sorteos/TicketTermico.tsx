@@ -5,12 +5,6 @@ import type { ConfigTicket, DatosTicket } from "@/lib/sorteos/ticket-impresion-t
 const PYG = new Intl.NumberFormat("es-PY");
 const gs = (n: number) => PYG.format(Math.round(n || 0)) + " Gs.";
 
-/** Solo la fecha, como en el modelo del comprobante: la hora no le dice nada al comprador. */
-function soloFecha(iso: string | null): string {
-  if (!iso) return "";
-  return new Date(iso).toLocaleDateString("es-PY", { dateStyle: "short" });
-}
-
 /**
  * Un boleto para impresora térmica.
  *
@@ -142,13 +136,16 @@ export default function TicketTermico({
       {angosto && qrImg && <div className="mt-1 flex justify-center">{qrImg}</div>}
 
       {/*
-        Fecha e importe, como en el modelo. El número de orden va pegado a la fecha —fuera de
-        la estructura no entra en ningún lado— porque sin él el vendedor no puede atar el papel
-        a la venta cuando rinde la caja.
+        Importe y numero de orden, como en el modelo que paso el cliente. La fecha salia aca y
+        se saco: el boleto se compra y se imprime en el momento, asi que no le dice nada al
+        comprador y ocupaba el renglon.
+
+        El numero de orden se queda: sin el, el vendedor no puede atar el papel a la venta
+        cuando rinde la caja.
       */}
       <div className="leading-tight">
         <div>
-          FECHA: {soloFecha(datos.fecha)} · N.º {datos.numero_orden ?? "—"}
+          N.º {datos.numero_orden ?? "—"}
           {boleto && boleto.de > 1 ? ` · Boleto ${boleto.n}/${boleto.de}` : ""}
         </div>
         {boleto && boleto.de > 1 ? (
