@@ -136,18 +136,18 @@ export default function TicketTermico({
       {angosto && qrImg && <div className="mt-1 flex justify-center">{qrImg}</div>}
 
       {/*
-        Importe y numero de orden, como en el modelo que paso el cliente. La fecha salia aca y
-        se saco: el boleto se compra y se imprime en el momento, asi que no le dice nada al
-        comprador y ocupaba el renglon.
+        Solo el importe, como en el modelo que paso el cliente. Antes este renglon abria con la
+        fecha y el numero de orden; los dos salieron. El boleto se compra y se imprime en el
+        momento, asi que la fecha no le dice nada al comprador, y el numero de orden es un dato
+        de control interno que el comprador no usa.
 
-        El numero de orden se queda: sin el, el vendedor no puede atar el papel a la venta
-        cuando rinde la caja.
+        La venta se sigue pudiendo rastrear por el numero de boleto (`NRO`), que va arriba en
+        grande y es unico.
       */}
       <div className="leading-tight">
-        <div>
-          N.º {datos.numero_orden ?? "—"}
-          {boleto && boleto.de > 1 ? ` · Boleto ${boleto.n}/${boleto.de}` : ""}
-        </div>
+        {boleto && boleto.de > 1 ? (
+          <div>{`Boleto ${boleto.n}/${boleto.de}`}</div>
+        ) : null}
         {boleto && boleto.de > 1 ? (
           <div>
             {gs(montoBoleto)} · compra de {boleto.de} boletos {gs(datos.monto)}

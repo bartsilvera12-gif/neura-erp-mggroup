@@ -47,15 +47,6 @@ function wrapMono(text: string, fs: number, weight: number, maxW: number, maxLin
   return lineas.slice(0, maxLines);
 }
 
-/** Solo la fecha: la hora no le dice nada a quien recibe la boleta. */
-function soloFecha(fechaHora: string): string {
-  const t = (fechaHora ?? "").trim();
-  if (!t) return "";
-  /** `fechaHora` llega ya formateada ("7/9/26, 11:30"); si trae hora, se corta en la coma. */
-  const coma = t.indexOf(",");
-  return (coma > 0 ? t.slice(0, coma) : t).trim();
-}
-
 export function buildSorteoTicketMinimalSvg(input: SorteoTicketRenderInput): string {
   const cfg = input.config;
   const bg = "#ffffff";
@@ -166,8 +157,11 @@ export function buildSorteoTicketMinimalSvg(input: SorteoTicketRenderInput): str
     y += 12;
   }
 
-  const fecha = soloFecha(input.fechaHora);
-  if (fecha) linea(`FECHA: ${fecha}`, { fs: 32, weight: 600, centrado: false, maxLines: 1 });
+  /**
+   * Sin fecha, igual que la boleta impresa: el boleto se compra y se emite en el momento, asi
+   * que no le dice nada al comprador. Las dos boletas tienen que leerse igual, por eso salio de
+   * las dos y no de una sola.
+   */
 
   if (typeof input.montoTotal === "number" && input.montoTotal > 0) {
     linea(gs(input.montoTotal), { fs: 32, weight: 600, centrado: false, maxLines: 1 });
