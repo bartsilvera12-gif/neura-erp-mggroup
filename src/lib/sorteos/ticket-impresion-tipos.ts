@@ -39,6 +39,8 @@ export type DatosTicket = {
   monto: number;
   pago_metodo: string | null;
   cupones: string[];
+  /** Para poder caer al logo del sorteo cuando no hay uno configurado para la impresora. */
+  sorteo_id: string;
   sorteo_nombre: string;
   vendedor_nombre: string | null;
   vendedor_numero: number | null;

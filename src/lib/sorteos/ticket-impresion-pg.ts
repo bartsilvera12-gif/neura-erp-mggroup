@@ -112,7 +112,7 @@ export async function leerDatosTicket(
     `SELECT e.id::text AS entrada_id, e.numero_orden, e.created_at AS fecha,
             e.nombre_participante AS cliente, e.documento, e.whatsapp_numero AS telefono,
             e.cantidad_boletos AS cantidad, e.monto_total AS monto, e.pago_metodo,
-            s.nombre AS sorteo_nombre,
+            e.sorteo_id::text AS sorteo_id, s.nombre AS sorteo_nombre,
             rv.nombre AS vendedor_nombre, rv.numero_vendedor AS vendedor_numero,
             COALESCE(
               NULLIF(TRIM(to_jsonb(e) ->> 'ciudad'), ''),
@@ -160,6 +160,7 @@ export async function leerDatosTicket(
     monto: Number(row.monto ?? 0),
     pago_metodo: row.pago_metodo == null ? null : String(row.pago_metodo),
     cupones: Array.isArray(row.cupones) ? (row.cupones as unknown[]).map((x) => String(x)) : [],
+    sorteo_id: String(row.sorteo_id ?? ""),
     sorteo_nombre: String(row.sorteo_nombre ?? "").trim(),
     vendedor_nombre: row.vendedor_nombre == null ? null : String(row.vendedor_nombre),
     vendedor_numero: row.vendedor_numero == null ? null : Number(row.vendedor_numero),

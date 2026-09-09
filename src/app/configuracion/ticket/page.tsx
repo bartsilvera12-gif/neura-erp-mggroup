@@ -25,6 +25,7 @@ const EJEMPLO: DatosTicket = {
   monto: 20000,
   pago_metodo: "efectivo",
   cupones: ["4827", "7154"],
+  sorteo_id: "preview",
   sorteo_nombre: "Nissan Frontier",
   vendedor_nombre: "Carlos Benítez",
   vendedor_numero: 3,

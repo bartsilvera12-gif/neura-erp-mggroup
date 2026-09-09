@@ -24,6 +24,43 @@ export function sorteoTicketAssetLogoCandidates(empresaId: string, sorteoId: str
   return [`${base}/logo.png`, `${base}/logo.webp`, `${base}/logo.jpg`];
 }
 
+/** URL publica de un archivo del bucket de assets. El bucket se crea con `public: true`. */
+export function sorteoTicketAssetPublicUrl(path: string): string | null {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/+$/, "");
+  if (!base) return null;
+  return `${base}/storage/v1/object/public/${SORTEO_TICKET_ASSETS_BUCKET}/${path}`;
+}
+
+/**
+ * URL publica del logo del sorteo, o `null` si no subieron ninguno.
+ *
+ * La boleta impresa tenia su propio campo de logo, una URL escrita a mano en Configuracion →
+ * Ticket, separada del logo que se sube para el sorteo. Nadie la llenaba —es razonable pensar
+ * que subir el logo una vez alcanza— y la boleta salia sin logo mientras la de WhatsApp lo
+ * mostraba bien. Esto la deja caer al logo del sorteo cuando el campo esta vacio.
+ *
+ * Se prueban las tres extensiones con `HEAD`, sin bajar el archivo: solo interesa cual existe,
+ * porque la imagen la termina pidiendo el navegador que imprime.
+ */
+export async function sorteoLogoPublicUrl(
+  empresaId: string,
+  sorteoId: string
+): Promise<string | null> {
+  if (!empresaId || !sorteoId) return null;
+  for (const path of sorteoTicketAssetLogoCandidates(empresaId, sorteoId)) {
+    const url = sorteoTicketAssetPublicUrl(path);
+    if (!url) return null;
+    try {
+      const res = await fetch(url, { method: "HEAD", cache: "no-store" });
+      if (res.ok) return url;
+    } catch {
+      /** Sin red o storage caido: la boleta sale sin logo, que es como sale hoy. */
+      return null;
+    }
+  }
+  return null;
+}
+
 /** Posibles paths en Storage para fondo del ticket. */
 export function sorteoTicketAssetBackgroundCandidates(empresaId: string, sorteoId: string): string[] {
   const base = `${empresaId}/${sorteoId}`;

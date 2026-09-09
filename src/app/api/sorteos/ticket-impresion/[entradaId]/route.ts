@@ -14,6 +14,7 @@ import {
   buildSorteoTicketQrPayload,
   renderSorteoTicketQrDataUrl,
 } from "@/lib/sorteos/sorteo-ticket-qr";
+import { sorteoLogoPublicUrl } from "@/lib/sorteos/sorteo-ticket-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,18 @@ export async function GET(
     }
 
     /*
+     * Sin logo configurado para la impresora, se usa el del sorteo —el mismo que sale en la
+     * boleta de WhatsApp—. El campo de Configuracion → Ticket sigue mandando cuando esta
+     * cargado, por si alguien quiere un logo distinto en el papel.
+     *
+     * Eran dos configuraciones para el mismo logo, y la del papel pedia una URL escrita a mano
+     * que nadie llenaba: la boleta salia sin logo mientras la digital lo mostraba bien.
+     */
+    const cfgConLogo = cfg.logo_url
+      ? cfg
+      : { ...cfg, logo_url: (await sorteoLogoPublicUrl(empresaId, datos.sorteo_id)) ?? "" };
+
+    /*
      * Un QR por número, con el mismo contenido que el del comprobante de WhatsApp: en la puerta
      * del sorteo se escanea el boleto de papel o la imagen del celular y tiene que leerse lo
      * mismo. Se arma acá y no en el navegador porque el payload lo define el servidor.
@@ -95,7 +108,7 @@ export async function GET(
       })
     );
 
-    return NextResponse.json(successResponse({ cfg, datos: { ...datos, qr_por_cupon: qrPorCupon } }));
+    return NextResponse.json(successResponse({ cfg: cfgConLogo, datos: { ...datos, qr_por_cupon: qrPorCupon } }));
   } catch (e) {
     console.error("[api/sorteos/ticket-impresion]", e instanceof Error ? e.message : e);
     return NextResponse.json(errorResponse("No se pudo cargar el ticket."), { status: 500 });
