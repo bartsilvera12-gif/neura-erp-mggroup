@@ -70,13 +70,21 @@ export default function TicketTermico({
     .filter(Boolean)
     .join(" ");
 
+  /*
+   * En 80 mm el logo va a la par del QR, que mide 20 mm: topeado mas bajo quedaba visiblemente
+   * mas chico que el codigo, con aire muerto arriba y abajo. En 58 mm va solo en su renglon y
+   * tiene los 52 mm de ancho para el, asi que aguanta mas alto sin apretar nada.
+   *
+   * El ancho lo sigue limitando `maxWidth`, y `contain` mantiene la proporcion: un logo muy
+   * apaisado se frena por el ancho antes de llegar a esta altura, en vez de deformarse.
+   */
   const logo = cfg.logo_url ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={cfg.logo_url}
       alt=""
       className="block"
-      style={{ maxWidth: "100%", maxHeight: angosto ? "12mm" : "14mm", objectFit: "contain" }}
+      style={{ maxWidth: "100%", maxHeight: angosto ? "18mm" : "20mm", objectFit: "contain" }}
     />
   ) : (
     <div className="font-bold uppercase leading-tight">{cfg.negocio_nombre || ""}</div>
