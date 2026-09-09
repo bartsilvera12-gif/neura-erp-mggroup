@@ -244,6 +244,7 @@ export default function SorteoCuponesBatchPrintClient({
                   <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Cédula</th>
                   <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Teléfono</th>
                   <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Ciudad</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Vendedor</th>
                   <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Cantidad</th>
                   <th className="px-5 py-3 text-right text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Monto</th>
                   <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Cupones</th>
@@ -276,6 +277,32 @@ export default function SorteoCuponesBatchPrintClient({
                       <td className="px-5 py-3 text-sm font-mono text-slate-600">{r.documento ?? "—"}</td>
                       <td className="px-5 py-3 text-sm font-mono text-slate-700">{r.whatsapp_numero}</td>
                       <td className="px-5 py-3 text-sm text-slate-700">{r.ciudad ?? "-"}</td>
+                      {/*
+                        Quién vendió. El número es lo que se usa para hablar de un vendedor
+                        («la 3 vendió 20»), así que va adelante y en grande; el nombre debajo,
+                        para saber quién es sin tener que buscar el número en otra pantalla.
+
+                        Las ventas del bot de WhatsApp no pasan por ningún vendedor: ahí va un
+                        guion, no un cero, que se leería como un vendedor más.
+                      */}
+                      <td className="px-5 py-3 text-sm whitespace-nowrap">
+                        {r.vendedor_numero != null || r.vendedor_nombre ? (
+                          <>
+                            <div className="font-semibold text-slate-800">
+                              {r.vendedor_numero != null
+                                ? `Vendedor ${r.vendedor_numero}`
+                                : (r.vendedor_nombre ?? "")}
+                            </div>
+                            {r.vendedor_numero != null && r.vendedor_nombre ? (
+                              <div className="mt-0.5 text-[11px] font-normal text-slate-500">
+                                {r.vendedor_nombre}
+                              </div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3 text-sm text-slate-800">{r.cantidad_boletos}</td>
                       <td className="px-5 py-3 text-sm text-right tabular-nums text-slate-800">
                         {formatGs(r.monto_total)}

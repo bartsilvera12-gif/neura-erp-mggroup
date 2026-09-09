@@ -289,6 +289,7 @@ async function fetchSorteoCuponesOrdenesPgDirect(
   const tSort = quoteSchemaTable(sch, "sorteos");
   const tCli = quoteSchemaTable(sch, "clientes");
   const tFlowData = quoteSchemaTable(sch, "chat_flow_data");
+  const tRev = quoteSchemaTable(sch, "sorteo_revendedores");
 
   const { sql: whereSe, params: baseParams } = buildEntradaWhereParts(empresaId, listParams, 1, "se");
   const existsCupon = `EXISTS (
@@ -363,6 +364,32 @@ async function fetchSorteoCuponesOrdenesPgDirect(
     }
   }
 
+  /**
+   * Quién vendió cada boleta. Una sola consulta para toda la página, como los nombres de
+   * sorteo: son diez vendedores repetidos en cincuenta filas, no hace falta una por fila.
+   */
+  const revendedorIds = [
+    ...new Set(entradas.map((r) => r.revendedor_id).filter(Boolean).map(String)),
+  ];
+  const vendedorById: Record<string, { numero: number | null; nombre: string }> = {};
+  if (revendedorIds.length > 0) {
+    const revRes = await pool.query(
+      `SELECT id, numero_vendedor, nombre FROM ${tRev}
+        WHERE empresa_id = $1::uuid AND id = ANY($2::uuid[])`,
+      [empresaId, revendedorIds]
+    );
+    for (const v of revRes.rows as {
+      id: string;
+      numero_vendedor: number | null;
+      nombre: string;
+    }[]) {
+      vendedorById[String(v.id)] = {
+        numero: typeof v.numero_vendedor === "number" ? v.numero_vendedor : null,
+        nombre: String(v.nombre ?? ""),
+      };
+    }
+  }
+
   const mapped = entradas
     .map((raw) => {
       const r = normalizeRowTimestamps(raw);
@@ -405,6 +432,8 @@ async function fetchSorteoCuponesOrdenesPgDirect(
         numeros_cupon: numeros,
         cupones_impresos_at:
           cupImp instanceof Date ? cupImp.toISOString() : cupImp != null ? String(cupImp) : null,
+        vendedor_numero: vendedorById[String(r.revendedor_id ?? "")]?.numero ?? null,
+        vendedor_nombre: vendedorById[String(r.revendedor_id ?? "")]?.nombre || null,
       };
     })
     .filter((x): x is SorteoCuponOrdenRow => x !== null);
@@ -770,6 +799,9 @@ async function fetchSorteoCuponesOrdenesPostgrest(
         numeros_cupon: numeros,
         cupones_impresos_at:
           cupImp instanceof Date ? cupImp.toISOString() : cupImp != null ? String(cupImp) : null,
+        /** El camino PostgREST no trae el vendedor; se completa despues, como la ciudad. */
+        vendedor_numero: null as number | null,
+        vendedor_nombre: null as string | null,
       };
     })
     .filter((x): x is SorteoCuponOrdenRow => x !== null);
@@ -777,6 +809,38 @@ async function fetchSorteoCuponesOrdenesPostgrest(
   // Completar ciudad (path PostgREST) desde el batch chat_flow_data → clientes.
   for (const row of mapped) {
     row.ciudad = ciudadByEntrada[row.entrada_id] ?? null;
+  }
+
+  /** Quién vendió cada boleta, en un solo pedido para toda la página. */
+  const revIds = [
+    ...new Set(entradas.map((r) => r.revendedor_id).filter(Boolean).map(String)),
+  ];
+  if (revIds.length > 0) {
+    const { data: revs } = await sb
+      .from("sorteo_revendedores")
+      .select("id, numero_vendedor, nombre")
+      .eq("empresa_id", empresaId)
+      .in("id", revIds);
+    const porId: Record<string, { numero: number | null; nombre: string }> = {};
+    for (const v of (revs ?? []) as {
+      id: string;
+      numero_vendedor: number | null;
+      nombre: string | null;
+    }[]) {
+      porId[String(v.id)] = {
+        numero: typeof v.numero_vendedor === "number" ? v.numero_vendedor : null,
+        nombre: String(v.nombre ?? ""),
+      };
+    }
+    const revIdPorEntrada: Record<string, string> = {};
+    for (const e of entradas) {
+      if (e.revendedor_id) revIdPorEntrada[String(e.id)] = String(e.revendedor_id);
+    }
+    for (const row of mapped) {
+      const v = porId[revIdPorEntrada[row.entrada_id] ?? ""];
+      row.vendedor_numero = v?.numero ?? null;
+      row.vendedor_nombre = v?.nombre || null;
+    }
   }
 
   return {

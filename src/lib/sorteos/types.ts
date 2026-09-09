@@ -129,6 +129,12 @@ export type SorteoCuponOrdenRow = {
   numeros_cupon: string[];
   /** Impresión física urna (migración cupones_impresos_*). */
   cupones_impresos_at: string | null;
+  /**
+   * Quién vendió la boleta. `null` en las ventas que entraron por el bot de WhatsApp, que no
+   * pasan por ningún vendedor.
+   */
+  vendedor_numero: number | null;
+  vendedor_nombre: string | null;
 };
 
 export interface SorteoCupon {
