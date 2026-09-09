@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { SorteoCuponOrdenRow } from "@/lib/sorteos/types";
+import SorteoCuponAnularCell from "@/components/sorteos/SorteoCuponAnularCell";
 import SorteoCuponesPagoCell from "@/components/sorteos/SorteoCuponesPagoCell";
 import SorteoCuponesImpresionCell from "@/components/sorteos/SorteoCuponesImpresionCell";
 
@@ -252,6 +253,7 @@ export default function SorteoCuponesBatchPrintClient({
                   <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Pago</th>
                   <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Fecha</th>
                   <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Chat</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -332,6 +334,13 @@ export default function SorteoCuponesBatchPrintClient({
                           "—"
                         )}
                       </td>
+                      <SorteoCuponAnularCell
+                        entradaId={r.entrada_id}
+                        numeroOrden={r.numero_orden}
+                        cliente={r.nombre_participante}
+                        cupones={r.numeros_cupon}
+                        estadoPago={r.estado_pago}
+                      />
                     </tr>
                   );
                 })}
