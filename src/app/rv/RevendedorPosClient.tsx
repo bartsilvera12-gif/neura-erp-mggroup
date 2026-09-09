@@ -66,6 +66,19 @@ export default function RevendedorPosClient(props: Props) {
   const [result, setResult] = useState<SaleResult | null>(null);
   const [buscando, setBuscando] = useState(false);
   const [avisoBusqueda, setAvisoBusqueda] = useState<string | null>(null);
+  /**
+   * Clave de la venta que se esta cargando, no del envio.
+   *
+   * Se generaba nueva en cada envio, con lo cual la idempotencia no protegia de nada: dos
+   * clicks en «Confirmar», o volver atras y confirmar de nuevo, entraban como dos claves
+   * distintas y el servidor las tomaba como dos ventas distintas, con dos numeros de boleto y
+   * cobrandole dos veces al mismo comprador.
+   *
+   * Atada a la venta, reintentar manda la MISMA clave: el servidor reconoce que ya la registro
+   * y devuelve la que existe, con sus mismos cupones. Se renueva recien en «Nueva venta», que
+   * es cuando de verdad empieza otra.
+   */
+  const [idemKey, setIdemKey] = useState<string>(newIdemKey);
 
   /**
    * Autocompleta nombre, teléfono y ciudad desde una compra anterior con ese documento.
@@ -157,7 +170,7 @@ export default function RevendedorPosClient(props: Props) {
           ciudad: ciudad.trim(),
           cantidad: qty,
           pago_metodo: pagoMetodo,
-          idempotency_key: newIdemKey(),
+          idempotency_key: idemKey,
         }),
       });
       const json = (await res.json().catch(() => ({}))) as {
@@ -187,6 +200,8 @@ export default function RevendedorPosClient(props: Props) {
     setPagoMetodo("efectivo");
     setErr(null);
     setAvisoBusqueda(null);
+    /** Recien aca empieza otra venta: hasta este punto, reintentar tiene que dar la misma. */
+    setIdemKey(newIdemKey());
   }
 
   // ---- Vista de comprobante (post-venta, imprimible) ----

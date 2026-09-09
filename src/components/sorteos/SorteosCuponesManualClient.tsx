@@ -171,6 +171,15 @@ export default function SorteosCuponesManualClient() {
         }
       }
       setSubmitOk(msg);
+      /**
+       * Clave nueva para la proxima venta.
+       *
+       * Se generaba solo al abrir el modal, y el modal queda abierto despues de guardar: la
+       * segunda venta cargada sin cerrarlo mandaba la MISMA clave, el servidor la reconocia
+       * como repetida y devolvia la primera. El aviso decia «orden creada» con el numero de la
+       * anterior y la venta del segundo comprador no quedaba registrada.
+       */
+      setIdempotencyKey(crypto.randomUUID());
       setForm((p) => ({
         ...p,
         nombre: "",
