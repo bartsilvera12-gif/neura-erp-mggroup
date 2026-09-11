@@ -31,6 +31,23 @@ type Datos = {
   revendedores: Fila[];
   totales: { boletas: number; boletas_hoy: number; ventas: number; monto: number } | null;
   progreso: { vendidas: number; maximo: number | null; restante: number | null } | null;
+  canales?: Canal[];
+  serieBot?: Array<{ dia: string; boletas: number; monto: number }>;
+};
+
+type Canal = {
+  canal: "bot" | "vendedor" | "manual";
+  ventas: number;
+  boletas: number;
+  boletas_hoy: number;
+  monto: number;
+  pendientes: number;
+};
+
+const CANAL: Record<Canal["canal"], { nombre: string; color: string }> = {
+  bot: { nombre: "Bot de WhatsApp", color: "#4FAEB2" },
+  vendedor: { nombre: "Vendedores", color: "#3B4E9B" },
+  manual: { nombre: "Carga manual (ERP)", color: "#94A3B8" },
 };
 
 const PYG = new Intl.NumberFormat("es-PY");
@@ -56,6 +73,35 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
       </span>
       {children}
     </label>
+  );
+}
+
+/** Una cifra del bloque del bot, con una nota chica abajo si hace falta. */
+function Kpi({
+  etiqueta,
+  valor,
+  nota,
+  alerta,
+}: {
+  etiqueta: string;
+  valor: string;
+  nota?: string;
+  alerta?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-lg border px-3 py-2 ${
+        alerta ? "border-amber-200 bg-amber-50" : "border-slate-100 bg-slate-50"
+      }`}
+    >
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{etiqueta}</div>
+      <div className="text-lg font-bold tabular-nums text-slate-900">{valor}</div>
+      {nota && (
+        <div className={`text-[11px] ${alerta ? "font-medium text-amber-800" : "text-slate-500"}`}>
+          {nota}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -145,6 +191,21 @@ export default function RankingRevendedoresCard({ sorteoId }: { sorteoId?: strin
     ];
   }, [data]);
 
+  const botCanal = useMemo(() => data?.canales?.find((c) => c.canal === "bot") ?? null, [data]);
+  const totalBoletasCanales = useMemo(
+    () => (data?.canales ?? []).reduce((a, c) => a + c.boletas, 0),
+    [data]
+  );
+  /** «dd/mm» en el eje: el año sobra en una serie de dos semanas. */
+  const serieBot = useMemo(
+    () =>
+      (data?.serieBot ?? []).map((d) => ({
+        ...d,
+        etiqueta: `${d.dia.slice(8, 10)}/${d.dia.slice(5, 7)}`,
+      })),
+    [data]
+  );
+
   async function exportarExcel() {
     if (!data) return;
     /** Carga diferida: la librería pesa y solo hace falta cuando alguien exporta. */
@@ -161,6 +222,20 @@ export default function RankingRevendedoresCard({ sorteoId }: { sorteoId?: strin
     const hoja = XLSX.utils.json_to_sheet(filasXls);
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, "Ranking");
+    /** Segunda hoja con los tres canales, bot incluido: el ranking solo tiene vendedores. */
+    if (data.canales?.length) {
+      const hojaCanales = XLSX.utils.json_to_sheet(
+        data.canales.map((c) => ({
+          Canal: CANAL[c.canal].nombre,
+          Ventas: c.ventas,
+          Boletos: c.boletas,
+          "Boletos hoy": c.boletas_hoy,
+          "Monto (Gs.)": Math.round(c.monto),
+          "Pendientes de revisión": c.pendientes,
+        }))
+      );
+      XLSX.utils.book_append_sheet(libro, hojaCanales, "Por canal");
+    }
     const campana = (data.sorteo?.nombre ?? "sorteo").replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 40);
     const periodo = desde || hasta ? `_${desde || "inicio"}_a_${hasta || "hoy"}` : "";
     XLSX.writeFile(libro, `ranking_${campana}${periodo}.xlsx`);
@@ -278,6 +353,95 @@ export default function RankingRevendedoresCard({ sorteoId }: { sorteoId?: strin
 
       {data && (
         <>
+          {/*
+            Ventas del bot. El ranking de abajo es solo de vendedores, así que las compras que
+            la gente hace sola por WhatsApp no aparecían en ningún lado del panel.
+
+            Se oculta al filtrar por un vendedor: ahí la pregunta es cómo le va a esa persona, y
+            los totales del bot no responden eso.
+          */}
+          {!vendedorSel && botCanal && (
+            <section className="rounded-xl border border-[#4FAEB2]/30 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-800">🤖 Ventas por el bot</h3>
+                <span className="text-xs text-slate-500">
+                  {totalBoletasCanales > 0
+                    ? `${Math.round((botCanal.boletas / totalBoletasCanales) * 100)}% de las boletas del período`
+                    : "Sin ventas en el período"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                <Kpi etiqueta="Ventas" valor={num(botCanal.ventas)} />
+                <Kpi
+                  etiqueta="Boletas"
+                  valor={num(botCanal.boletas)}
+                  nota={botCanal.boletas_hoy > 0 ? `+${num(botCanal.boletas_hoy)} hoy` : undefined}
+                />
+                <Kpi etiqueta="Recaudado" valor={gs(botCanal.monto)} />
+                <Kpi
+                  etiqueta="Por revisar"
+                  valor={num(botCanal.pendientes)}
+                  nota={botCanal.pendientes > 0 ? "comprobantes esperando" : "al día"}
+                  alerta={botCanal.pendientes > 0}
+                />
+              </div>
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div>
+                  <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Boletas del bot por día
+                  </h4>
+                  {serieBot.length === 0 ? (
+                    <p className="text-sm text-slate-500">El bot no vendió en el período.</p>
+                  ) : (
+                    <div style={{ width: "100%", height: 180 }}>
+                      <ResponsiveContainer>
+                        <BarChart data={serieBot} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                          <XAxis dataKey="etiqueta" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                          <YAxis tick={{ fontSize: 11 }} width={36} allowDecimals={false} />
+                          <Tooltip
+                            formatter={(v: number) => [`${num(v)} boletas`, "Bot"]}
+                            labelFormatter={(l) => `Día ${l}`}
+                          />
+                          <Bar dataKey="boletas" fill={CANAL.bot.color} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Por canal
+                  </h4>
+                  <ul className="space-y-2.5">
+                    {(data.canales ?? []).map((c) => {
+                      const pct = totalBoletasCanales > 0 ? (c.boletas / totalBoletasCanales) * 100 : 0;
+                      return (
+                        <li key={c.canal}>
+                          <div className="flex items-baseline justify-between gap-2 text-sm">
+                            <span className="font-medium text-slate-800">{CANAL[c.canal].nombre}</span>
+                            <span className="tabular-nums text-slate-600">
+                              {num(c.boletas)} u. · {gs(c.monto)}
+                            </span>
+                          </div>
+                          <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${pct}%`, background: CANAL[c.canal].color }}
+                            />
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </div>
+            </section>
+          )}
+
+
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <h3 className="mb-2 text-sm font-semibold text-slate-800">

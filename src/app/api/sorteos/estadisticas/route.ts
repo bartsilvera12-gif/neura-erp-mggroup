@@ -9,6 +9,7 @@ import {
   listarSorteosParaFiltro,
   sorteoActivoMasReciente,
 } from "@/lib/sorteos/revendedores-ranking-pg";
+import { cargarVentasPorCanal } from "@/lib/sorteos/ventas-por-canal-pg";
 
 export const dynamic = "force-dynamic";
 
@@ -55,21 +56,40 @@ export async function GET(request: NextRequest) {
 
     if (!elegido) {
       return NextResponse.json(
-        successResponse({ sorteos, sorteo: null, revendedores: [], totales: null, progreso: null })
+        successResponse({
+          sorteos,
+          sorteo: null,
+          revendedores: [],
+          totales: null,
+          progreso: null,
+          canales: [],
+          serieBot: [],
+        })
       );
     }
 
-    const data = await cargarRankingRevendedores(pool, schema, empresaId, elegido.id, {
-      desdeIso: limite(sp.get("desde"), false),
-      hastaIso: limite(sp.get("hasta"), true),
-      revendedorId: (sp.get("vendedor_id") ?? "").trim() || null,
-    });
+    const desdeIso = limite(sp.get("desde"), false);
+    const hastaIso = limite(sp.get("hasta"), true);
+
+    /*
+     * Ranking y canales en paralelo. Los canales no se acotan por vendedor: comparan el bot
+     * contra los vendedores y la carga manual, así que filtrar por uno solo los vaciaría.
+     */
+    const [data, porCanal] = await Promise.all([
+      cargarRankingRevendedores(pool, schema, empresaId, elegido.id, {
+        desdeIso,
+        hastaIso,
+        revendedorId: (sp.get("vendedor_id") ?? "").trim() || null,
+      }),
+      cargarVentasPorCanal(pool, schema, empresaId, elegido.id, { desdeIso, hastaIso }),
+    ]);
 
     return NextResponse.json(
       successResponse({
         sorteos,
         sorteo: { id: elegido.id, nombre: elegido.nombre },
         ...data,
+        ...porCanal,
       })
     );
   } catch (e) {
