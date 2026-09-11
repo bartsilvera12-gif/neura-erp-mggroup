@@ -139,7 +139,13 @@ export async function PATCH(
     if (typeof body.is_active === "boolean") patch.is_active = body.is_active;
     if ("input_validation" in body) {
       const v = (body.input_validation ?? "none").trim();
-      if (v !== "none" && v !== "number" && v !== "title_case") {
+      if (
+        v !== "none" &&
+        v !== "number" &&
+        v !== "title_case" &&
+        v !== "documento" &&
+        v !== "telefono"
+      ) {
         return NextResponse.json({ ok: false, error: "input_validation inválido" }, { status: 400 });
       }
       patch.input_validation = v;

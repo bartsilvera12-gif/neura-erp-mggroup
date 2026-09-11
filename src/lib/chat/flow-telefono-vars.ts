@@ -12,13 +12,18 @@ export const TELEFONO_KEYS = {
 } as const;
 
 /**
- * Formato local paraguayo: `595971988431` → `0971988431`. Cualquier otro país o
- * longitud se devuelve tal cual, sin inventar prefijos.
+ * Teléfono como lo reconoce quien lo lee.
+ *
+ * Paraguayo en formato local: `595971988431` → `0971988431`. De otro país, con el `+`
+ * adelante: `5491123456789` → `+5491123456789`; sin él, un número argentino o brasileño en
+ * la boleta parecía un código cualquiera. No se inventan prefijos: un número local sin código
+ * de país (empieza con 0 o es corto) se devuelve tal cual.
  */
 export function toTelefonoLocalPy(digits: string): string {
   const d = digits.replace(/\D+/g, "");
   if (!d) return "";
   if (d.startsWith("595") && d.length >= 11 && d.length <= 13) return `0${d.slice(3)}`;
+  if (d.length >= 11 && !d.startsWith("0")) return `+${d}`;
   return d;
 }
 

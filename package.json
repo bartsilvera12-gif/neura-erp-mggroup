@@ -65,7 +65,8 @@
     "qa:ocr-referencia": "tsx --conditions=react-server scripts/qa-ocr-referencia.ts",
     "qa:ocr-referencia-extraccion": "tsx --conditions=react-server scripts/qa-ocr-referencia-extraccion.ts",
     "qa:comprobante-fecha": "tsx --conditions=react-server scripts/qa-comprobante-fecha.ts",
-    "qa:ventas-por-canal": "tsx --conditions=react-server scripts/qa-ventas-por-canal.ts"
+    "qa:ventas-por-canal": "tsx --conditions=react-server scripts/qa-ventas-por-canal.ts",
+    "qa:extranjeros": "tsx scripts/qa-extranjeros.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

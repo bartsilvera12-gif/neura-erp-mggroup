@@ -401,10 +401,17 @@ export default function RevendedorPosClient(props: Props) {
           <>
             <ResumenBoletos qty={qty} total={total} onEditar={() => setPaso("boletos")} />
 
-            <Field label="Documento (C.I. / RUC)">
+            <Field label="Documento (C.I., RUC o pasaporte)">
               <div className="flex gap-2">
+                {/*
+                  Teclado de texto y no numérico: un pasaporte o un documento extranjero lleva
+                  letras, y con el teclado de números el vendedor no tenía cómo cargarlo.
+                */}
                 <input
-                  inputMode="numeric"
+                  inputMode="text"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={documento}
                   onChange={(e) => setDocumento(e.target.value)}
                   /** Buscar con Enter, sin enviar la venta a medio completar. */

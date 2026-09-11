@@ -569,7 +569,10 @@ export function FlowNodeCard(props: FlowNodeCardProps) {
                         id={`node-input-val-${node.id}`}
                         className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full bg-white"
                         value={
-                          node.input_validation === "number" || node.input_validation === "title_case"
+                          node.input_validation === "number" ||
+                          node.input_validation === "title_case" ||
+                          node.input_validation === "documento" ||
+                          node.input_validation === "telefono"
                             ? node.input_validation
                             : "none"
                         }
@@ -580,7 +583,22 @@ export function FlowNodeCard(props: FlowNodeCardProps) {
                         <option value="title_case">
                           Nombre o ciudad (corrige mayúsculas: «ciudad del este» → «Ciudad del Este»)
                         </option>
+                        <option value="documento">
+                          Documento: cédula, RUC o pasaporte (acepta extranjeros)
+                        </option>
+                        <option value="telefono">Teléfono de cualquier país</option>
                       </select>
+                      {/*
+                        Para la cédula conviene «Documento» y no «Solo un número»: un pasaporte lleva
+                        letras y con número el bot le repregunta a un extranjero sin fin.
+                      */}
+                      {node.input_validation === "number" &&
+                        /cedula|c[eé]dula|documento|\bci\b|ruc|dni/i.test(node.save_as_field ?? "") && (
+                          <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                            Este paso guarda un documento. Con «Solo un número» los extranjeros no pueden
+                            responder con su pasaporte: usá «Documento».
+                          </p>
+                        )}
                     </div>
                     {node.input_validation === "number" && (
                       <div>
@@ -607,7 +625,9 @@ export function FlowNodeCard(props: FlowNodeCardProps) {
                         </p>
                       </div>
                     )}
-                    {node.input_validation === "number" && (
+                    {(node.input_validation === "number" ||
+                      node.input_validation === "documento" ||
+                      node.input_validation === "telefono") && (
                       <div>
                         <label className="block text-xs text-slate-600 mb-1" htmlFor={`node-input-msg-${node.id}`}>
                           Mensaje si responde otra cosa
@@ -615,15 +635,21 @@ export function FlowNodeCard(props: FlowNodeCardProps) {
                         <input
                           id={`node-input-msg-${node.id}`}
                           className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full bg-white"
-                          placeholder="Respondé únicamente el número, por favor. Ej: 2"
+                          placeholder={
+                            node.input_validation === "documento"
+                              ? "Escribí tu número de documento: cédula, RUC o pasaporte."
+                              : node.input_validation === "telefono"
+                                ? "Escribí tu número de teléfono, con el código de país si no es de Paraguay."
+                                : "Respondé únicamente el número, por favor. Ej: 2"
+                          }
                           value={node.input_invalid_message ?? ""}
                           onChange={(e) =>
                             props.onPatchNode(node.id, { input_invalid_message: e.target.value || null })
                           }
                         />
                         <p className="text-[11px] text-slate-500 mt-1">
-                          El bot lo manda y se queda en este paso hasta recibir un número. Vacío = texto por
-                          defecto.
+                          El bot lo manda y se queda en este paso hasta recibir una respuesta válida. Vacío =
+                          texto por defecto.
                         </p>
                       </div>
                     )}
