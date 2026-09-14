@@ -505,7 +505,7 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       una_por_boleto: unaFotoPorBoleto,
     });
 
-    const hojas: { genPath: string; hash: string; numero: string; n: number }[] = [];
+    const hojas: { genPath: string; hash: string; numero: string; n: number; png: Uint8Array }[] = [];
     for (const [i, grupo] of grupos.entries()) {
       const { png, hash } = await renderTicketPngUnified({ ...renderInput, cupones: grupo });
       /** Sufijo por boleto: si no, cada imagen pisaria a la anterior en el Storage. */
@@ -520,7 +520,7 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
         storage_path: genPath,
         deliveryId: rowId,
       });
-      hojas.push({ genPath, hash, numero: grupo.join(", "), n: i + 1 });
+      hojas.push({ genPath, hash, numero: grupo.join(", "), n: i + 1, png });
     }
 
     /** La fila de entrega guarda la primera imagen: es la que se usa para reenviar y auditar. */
@@ -637,6 +637,7 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
         },
         automationSource: "sorteo_ticket",
         prefijoChat: "Ticket imagen",
+        bytes: hoja.png,
       });
       if (r.ok) waId = r.waMessageId;
       else rechazadas++;

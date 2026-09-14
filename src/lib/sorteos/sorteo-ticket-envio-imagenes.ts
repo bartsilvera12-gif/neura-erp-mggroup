@@ -6,7 +6,11 @@ import { getChatServiceClientForEmpresa } from "@/lib/supabase/chat-service-role
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import { persistOutgoingChatMessage } from "@/lib/chat/outgoing-message-persist";
 import { resolveOutboundTextContextFromIds } from "@/lib/chat/outbound-send-dispatch";
-import { sendWhatsAppImage } from "@/lib/chat/whatsapp-send-service";
+import {
+  sendWhatsAppImage,
+  sendWhatsAppImageById,
+  uploadWhatsAppMedia,
+} from "@/lib/chat/whatsapp-send-service";
 import { sendYCloudWhatsappMediaViaLink } from "@/lib/chat/ycloud-send-service";
 import { createSignedUrlForTicket } from "@/lib/sorteos/sorteo-ticket-storage";
 import { normalizeTicketImageConfig } from "@/lib/sorteos/sorteo-ticket-types";
@@ -47,12 +51,59 @@ export type ResultadoEnvioImagen = {
   error?: string;
 };
 
-/** Manda una imagen por el proveedor del canal. Devuelve ok solo si el proveedor dio un id. */
+/** Baja la imagen desde el Storage para subirla a Meta. */
+async function bajarImagen(url: string): Promise<Uint8Array | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return new Uint8Array(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Manda una imagen por el proveedor del canal. Devuelve ok solo si el proveedor dio un id.
+ *
+ * Con Meta la imagen se sube primero y se manda por id. Mandarla por link deja que Meta la
+ * descargue por su cuenta después de aceptar el mensaje: si esa descarga falla, el mensaje
+ * vuelve `failed` con 131053 («Media upload error») y el boleto no llega. Eso le pasó al
+ * boleto 3 de la orden 313. Si la subida falla, se prueba con el link como antes.
+ */
 export async function enviarImagenPorWhatsapp(
   outbound: Outbound,
   imageUrl: string,
-  caption: string
+  caption: string,
+  bytes?: Uint8Array | null
 ): Promise<ResultadoEnvioImagen> {
+  if (outbound.provider !== "ycloud") {
+    const archivo = bytes ?? (await bajarImagen(imageUrl));
+    if (archivo && archivo.length > 0) {
+      const up = await uploadWhatsAppMedia({
+        phoneNumberId: outbound.phoneNumberId,
+        accessToken: outbound.accessToken,
+        bytes: archivo,
+        mime: "image/png",
+        filename: "boleto.png",
+      });
+      if (up.ok) {
+        const r = await sendWhatsAppImageById({
+          toDigits: outbound.toDigits,
+          phoneNumberId: outbound.phoneNumberId,
+          accessToken: outbound.accessToken,
+          mediaId: up.mediaId,
+          caption,
+        });
+        if (!r.ok) return { ok: false, waMessageId: null, raw: r.raw, error: r.error || "send_failed" };
+        const id = typeof r.waMessageId === "string" && r.waMessageId.trim() ? r.waMessageId.trim() : null;
+        return { ok: true, waMessageId: id, raw: r.raw };
+      }
+      console.warn("[sorteo-ticket] subida_a_meta_fallo_se_usa_link", { error: up.error, status: up.status ?? null });
+    } else {
+      console.warn("[sorteo-ticket] no_se_pudo_bajar_imagen_se_usa_link");
+    }
+  }
+
   const r =
     outbound.provider === "ycloud"
       ? await sendYCloudWhatsappMediaViaLink({
@@ -194,13 +245,15 @@ export async function mandarYRegistrarImagen(input: {
   imagen: Pick<ImagenBoleto, "n" | "de" | "numero" | "storage_path" | "pie">;
   automationSource: string;
   prefijoChat: string;
+  /** El PNG recién generado, si se tiene a mano: se ahorra bajarlo del Storage. */
+  bytes?: Uint8Array | null;
 }): Promise<ResultadoEnvioImagen> {
   const { supabase, imagen } = input;
   const signed = await createSignedUrlForTicket(supabase, imagen.storage_path, 600);
 
   let r: ResultadoEnvioImagen = { ok: false, waMessageId: null, error: signed.error ?? "signed_url" };
   if (signed.url) {
-    r = await enviarImagenPorWhatsapp(input.outbound, signed.url, imagen.pie);
+    r = await enviarImagenPorWhatsapp(input.outbound, signed.url, imagen.pie, input.bytes);
     if (!r.ok) {
       console.warn("[sorteo-ticket] imagen_rechazada_reintento", {
         deliveryId: input.deliveryId,
@@ -209,7 +262,7 @@ export async function mandarYRegistrarImagen(input: {
         error: r.error,
       });
       await esperar(PAUSA_ANTES_DE_REINTENTAR_MS);
-      r = await enviarImagenPorWhatsapp(input.outbound, signed.url, imagen.pie);
+      r = await enviarImagenPorWhatsapp(input.outbound, signed.url, imagen.pie, input.bytes);
     }
   }
 

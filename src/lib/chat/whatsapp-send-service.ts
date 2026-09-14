@@ -311,6 +311,66 @@ export async function sendWhatsAppImage(
   });
 }
 
+/**
+ * Sube un archivo a Meta y devuelve su id, para mandarlo después sin link.
+ *
+ * Con `image.link` Meta descarga la imagen en el momento del envío; si esa descarga falla,
+ * el mensaje ya fue aceptado y vuelve `failed` con 131053 («Media upload error») por webhook.
+ * Subiéndola antes, el fallo (si lo hay) aparece acá, en el momento, y se puede reintentar.
+ */
+export async function uploadWhatsAppMedia(params: {
+  phoneNumberId: string;
+  accessToken: string;
+  bytes: Uint8Array;
+  mime: string;
+  filename: string;
+  graphVersion?: string;
+}): Promise<{ ok: true; mediaId: string } | { ok: false; error: string; status?: number; raw?: unknown }> {
+  const v = params.graphVersion ?? process.env.WHATSAPP_GRAPH_VERSION ?? "v19.0";
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", params.mime);
+  form.append("file", new Blob([new Uint8Array(params.bytes)], { type: params.mime }), params.filename);
+
+  const res = await medirEtapa("meta_media_upload", () =>
+    fetch(`https://graph.facebook.com/${v}/${params.phoneNumberId}/media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${params.accessToken}` },
+      body: form,
+    })
+  );
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  if (!res.ok || !id) {
+    const errMsg =
+      typeof raw.error === "object" && raw.error && "message" in (raw.error as object)
+        ? String((raw.error as { message?: string }).message)
+        : res.statusText;
+    return { ok: false, error: errMsg || `HTTP ${res.status}`, status: res.status, raw };
+  }
+  return { ok: true, mediaId: id };
+}
+
+/** Imagen ya subida con `uploadWhatsAppMedia`: Meta no tiene que ir a buscarla a ningún lado. */
+export async function sendWhatsAppImageById(params: {
+  toDigits: string;
+  phoneNumberId: string;
+  accessToken: string;
+  mediaId: string;
+  caption?: string;
+  graphVersion?: string;
+}): Promise<SendWhatsAppTextResult> {
+  return sendWhatsAppPayload(params, {
+    messaging_product: "whatsapp",
+    to: params.toDigits,
+    type: "image",
+    image: {
+      id: params.mediaId,
+      ...(params.caption ? { caption: params.caption.slice(0, 1024) } : {}),
+    },
+  });
+}
+
 export async function sendWhatsAppAudio(params: SendWhatsAppAudioParams): Promise<SendWhatsAppTextResult> {
   return sendWhatsAppPayload(params, {
     messaging_product: "whatsapp",
