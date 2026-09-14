@@ -5,7 +5,12 @@ import { useEffect, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getSorteos } from "@/lib/sorteos/actions";
 import type { Sorteo } from "@/lib/sorteos/types";
-import { leerImagenesDeBoleto, resumirImagenes } from "@/lib/sorteos/sorteo-ticket-imagenes";
+import {
+  boletosDeEntrega,
+  leerImagenesDeBoleto,
+  resumirImagenes,
+  type EstadoImagenBoleto,
+} from "@/lib/sorteos/sorteo-ticket-imagenes";
 
 /** Sorteo actual por defecto: activo más reciente; si no hay activo, el más reciente. */
 function pickDefaultSorteoIdClient(sorteos: Sorteo[]): string {
@@ -32,7 +37,25 @@ type TicketRow = {
   created_at: string;
   error_message?: string | null;
   payload_snapshot?: unknown;
+  storage_path?: string | null;
 };
+
+/** Color de cada boleto según lo que avisó Meta: se ve de un vistazo cuál no llegó. */
+function chipBoleto(estado: EstadoImagenBoleto | null): string {
+  if (estado === "delivered" || estado === "read") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100";
+  }
+  if (estado === "failed") return "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100";
+  return "border-slate-200 bg-white text-slate-600 hover:bg-slate-50";
+}
+
+function tituloBoleto(estado: EstadoImagenBoleto | null): string {
+  if (estado === "read") return "Leído por el cliente";
+  if (estado === "delivered") return "Entregado";
+  if (estado === "failed") return "No llegó";
+  if (estado === "sent" || estado === "aceptado") return "Enviado, sin confirmar la entrega";
+  return "Sin estado registrado";
+}
 
 const INPUT_CLS =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition-colors placeholder:text-slate-400 hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/20";
@@ -151,14 +174,21 @@ export default function SorteosTicketsPage() {
     }
   }
 
-  async function resendTicket(ticketId: string) {
+  /** Sin `boleto`: los que no llegaron. Con `boleto`: solo ese. */
+  async function resendTicket(ticketId: string, boleto?: { n: number; numero: string }) {
     setAviso(null);
-    if (!confirm("¿Reenviar por WhatsApp los boletos que no le llegaron al cliente? Si le llegaron todos, se le mandan todos de nuevo.")) return;
+    const pregunta = boleto
+      ? `¿Reenviar por WhatsApp solo el boleto N.º ${boleto.numero}?`
+      : "¿Reenviar por WhatsApp los boletos que no le llegaron al cliente? Si le llegaron todos, se le mandan todos de nuevo.";
+    if (!confirm(pregunta)) return;
     setBusyId(ticketId);
     setErr(null);
     try {
       const res = await fetchWithSupabaseSession(`/api/sorteos/tickets/${encodeURIComponent(ticketId)}/resend`, {
         method: "POST",
+        ...(boleto
+          ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ n: [boleto.n] }) }
+          : {}),
       });
       const json = (await res.json()) as {
         success?: boolean;
@@ -355,6 +385,7 @@ export default function SorteosTicketsPage() {
                 {rows.map((r) => {
                   const meta = statusMeta(r.status);
                   const boletos = resumirImagenes(leerImagenesDeBoleto(r.payload_snapshot));
+                  const porBoleto = boletosDeEntrega(r.payload_snapshot, r.storage_path);
                   return (
                     <tr key={r.id} className="transition-colors hover:bg-[#4FAEB2]/5">
                       <td className="px-4 py-3">
@@ -417,6 +448,25 @@ export default function SorteosTicketsPage() {
                             Regenerar
                           </button>
                         </div>
+                        {porBoleto.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap items-center justify-end gap-1">
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                              Reenviar uno:
+                            </span>
+                            {porBoleto.map((b) => (
+                              <button
+                                key={b.n}
+                                type="button"
+                                disabled={busyId === r.id}
+                                title={`Boleto ${b.n} de ${porBoleto.length} · ${tituloBoleto(b.estado)}`}
+                                onClick={() => void resendTicket(r.id, b)}
+                                className={`inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${chipBoleto(b.estado)}`}
+                              >
+                                {b.numero}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                       </td>
                     </tr>
                   );

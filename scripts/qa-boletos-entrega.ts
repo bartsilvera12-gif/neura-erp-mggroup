@@ -8,6 +8,7 @@
  */
 import {
   aplicarEstadoAImagen,
+  boletosDeEntrega,
   estadoDeFilaSegunImagenes,
   imagenesParaReenviar,
   leerImagenesDeBoleto,
@@ -215,6 +216,45 @@ console.log("\nLectura robusta de lo guardado");
   chequear(
     "un estado desconocido se toma como aceptado",
     leerImagenesDeBoleto({ imagenes: [{ n: 1, storage_path: "a", estado: "raro" }] })[0].estado === "aceptado"
+  );
+}
+
+console.log("\nBotones para reenviar un boleto solo");
+{
+  const conSeguimiento = boletosDeEntrega({ imagenes: imgs }, `${BASE}-1.png`);
+  chequear(
+    "con seguimiento: un botón por boleto, con su estado",
+    conSeguimiento.map((b) => `${b.n}:${b.numero}:${b.estado}`).join() ===
+      "1:4832:delivered,2:5564:delivered,3:8753:failed",
+    conSeguimiento
+  );
+
+  /** La orden 313 real: entrega de antes, sin lista guardada. */
+  const vieja = boletosDeEntrega({ trigger: "confirmacion_final", cupones: NUMEROS }, `${BASE}-1.png`);
+  chequear(
+    "entrega vieja: los arma con los números en orden",
+    vieja.map((b) => `${b.n}:${b.numero}`).join() === "1:4832,2:5564,3:8753",
+    vieja
+  );
+  chequear("sin estado inventado", vieja.every((b) => b.estado === null));
+  chequear(
+    "el 8753 pide la foto 3, la misma que arma el reenvío",
+    vieja.find((b) => b.numero === "8753")?.n ===
+      reconstruirImagenesDesdeMensajes({
+        storagePathPrimera: `${BASE}-1.png`,
+        numeros: NUMEROS,
+        mensajes: [],
+        pieBase: PIE,
+      }).find((i) => i.numero === "8753")?.n
+  );
+  chequear("compra de un boleto: sin botones", boletosDeEntrega({ cupones: ["4832"] }, `${BASE}.png`).length === 0);
+  chequear(
+    "compra vieja en una sola imagen: sin botones",
+    boletosDeEntrega({ cupones: NUMEROS }, `${BASE}.png`).length === 0
+  );
+  chequear(
+    "una sola imagen con seguimiento: sin botones",
+    boletosDeEntrega({ imagenes: [imgs[0]] }, `${BASE}-1.png`).length === 0
   );
 }
 

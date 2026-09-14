@@ -292,6 +292,42 @@ export function reconstruirImagenesDesdeMensajes(input: {
   });
 }
 
+export type BoletoDeEntrega = {
+  /** Posición en la compra; es lo que se pide al reenviar uno solo. */
+  n: number;
+  numero: string;
+  /** null: entrega de antes del seguimiento por foto, sin estado conocido en la fila. */
+  estado: EstadoImagenBoleto | null;
+};
+
+/**
+ * Los boletos de una entrega mandados como una foto cada uno, para reenviarlos de a uno.
+ *
+ * Con el seguimiento por foto sale de `imagenes`. En las entregas de antes se arma con los
+ * números en el orden en que se generaron las fotos (`payload_snapshot.cupones`), que es el
+ * mismo orden de los archivos `-1.png`, `-2.png`… Vacío si la compra fue una sola imagen.
+ */
+export function boletosDeEntrega(
+  payloadSnapshot: unknown,
+  storagePath: string | null | undefined
+): BoletoDeEntrega[] {
+  const imagenes = leerImagenesDeBoleto(payloadSnapshot);
+  if (imagenes.length > 0) {
+    return imagenes.length > 1
+      ? imagenes.map((i) => ({ n: i.n, numero: i.numero, estado: i.estado }))
+      : [];
+  }
+  if (!/-1\.png$/.test((storagePath ?? "").trim())) return [];
+  const snap =
+    payloadSnapshot && typeof payloadSnapshot === "object"
+      ? (payloadSnapshot as Record<string, unknown>)
+      : {};
+  const numeros = Array.isArray(snap.cupones)
+    ? snap.cupones.map((c) => texto(c).trim()).filter(Boolean)
+    : [];
+  return numeros.length > 1 ? numeros.map((numero, i) => ({ n: i + 1, numero, estado: null })) : [];
+}
+
 function estadoDesdeMensaje(estado: string | null, huboMensaje: boolean): EstadoImagenBoleto {
   if (!huboMensaje) return "failed";
   const e = (estado ?? "").trim().toLowerCase();
