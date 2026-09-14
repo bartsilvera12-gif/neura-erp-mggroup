@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getSorteos } from "@/lib/sorteos/actions";
 import type { Sorteo } from "@/lib/sorteos/types";
+import { leerImagenesDeBoleto, resumirImagenes } from "@/lib/sorteos/sorteo-ticket-imagenes";
 
 /** Sorteo actual por defecto: activo más reciente; si no hay activo, el más reciente. */
 function pickDefaultSorteoIdClient(sorteos: Sorteo[]): string {
@@ -29,6 +30,8 @@ type TicketRow = {
   telefono: string | null;
   numero_orden: string | null;
   created_at: string;
+  error_message?: string | null;
+  payload_snapshot?: unknown;
 };
 
 const INPUT_CLS =
@@ -84,6 +87,7 @@ export default function SorteosTicketsPage() {
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   async function load(sorteoOverride?: string) {
     setLoading(true);
@@ -148,16 +152,25 @@ export default function SorteosTicketsPage() {
   }
 
   async function resendTicket(ticketId: string) {
-    if (!confirm("¿Reenviar la imagen por WhatsApp al cliente?")) return;
+    setAviso(null);
+    if (!confirm("¿Reenviar por WhatsApp los boletos que no le llegaron al cliente? Si le llegaron todos, se le mandan todos de nuevo.")) return;
     setBusyId(ticketId);
     setErr(null);
     try {
       const res = await fetchWithSupabaseSession(`/api/sorteos/tickets/${encodeURIComponent(ticketId)}/resend`, {
         method: "POST",
       });
-      const json = (await res.json()) as { success?: boolean; error?: string };
+      const json = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        data?: { enviadas?: number; numeros?: string[] };
+      };
       if (!res.ok || !json.success) throw new Error(json.error || "Falló reenvío");
       await load();
+      const numeros = json.data?.numeros ?? [];
+      if (numeros.length > 0) {
+        setAviso(`Reenviado: ${numeros.length === 1 ? "boleto" : "boletos"} N.º ${numeros.join(", ")}`);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
     } finally {
@@ -300,6 +313,12 @@ export default function SorteosTicketsPage() {
         </div>
       ) : null}
 
+      {aviso ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {aviso}
+        </div>
+      ) : null}
+
       {/* Tabla */}
       <div className="overflow-hidden rounded-2xl border border-[#4FAEB2]/45 bg-white shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
@@ -335,6 +354,7 @@ export default function SorteosTicketsPage() {
               <tbody className="divide-y divide-slate-100">
                 {rows.map((r) => {
                   const meta = statusMeta(r.status);
+                  const boletos = resumirImagenes(leerImagenesDeBoleto(r.payload_snapshot));
                   return (
                     <tr key={r.id} className="transition-colors hover:bg-[#4FAEB2]/5">
                       <td className="px-4 py-3">
@@ -344,6 +364,22 @@ export default function SorteosTicketsPage() {
                           <span aria-hidden="true" className={`h-1 w-1 rounded-full ${meta.dot}`} />
                           {meta.label}
                         </span>
+                        {/* Con varias fotos, cuántas llegaron de verdad al teléfono y cuál no. */}
+                        {boletos.total > 1 || boletos.fallidas > 0 ? (
+                          <div className="mt-1 text-[11px] leading-snug text-slate-500">
+                            {boletos.entregadas}/{boletos.total} entregados
+                            {boletos.sin_confirmar > 0 ? ` · ${boletos.sin_confirmar} sin confirmar` : ""}
+                          </div>
+                        ) : null}
+                        {boletos.numeros_fallidos.length > 0 ? (
+                          <div className="text-[11px] font-semibold leading-snug text-rose-600">
+                            No llegó: N.º {boletos.numeros_fallidos.join(", ")}
+                          </div>
+                        ) : r.status === "error" && r.error_message ? (
+                          <div className="max-w-[16rem] text-[11px] leading-snug text-rose-600">
+                            {r.error_message}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-sm font-mono font-semibold text-slate-800">
                         {r.numero_orden ?? "—"}

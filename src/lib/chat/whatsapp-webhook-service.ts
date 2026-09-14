@@ -66,6 +66,7 @@ import {
   type AppSupabaseClient,
 } from "@/lib/supabase/schema";
 import type { Pool } from "pg";
+import { registrarEstadoDeImagenDeBoleto } from "@/lib/sorteos/sorteo-ticket-envio-imagenes";
 import {
   assertAllowedChatDataSchema,
   isLikelyUnexposedTenantChatSchema,
@@ -2198,12 +2199,18 @@ async function loadTableColumns(pool: Pool, schema: string, table: string): Prom
   return new Set(r.rows.map((row: { column_name: string }) => row.column_name));
 }
 
+type ResultadoEstadoMensaje = {
+  outcome: "updated" | "skipped" | "not_found";
+  /** De qué conversación y automatización es el mensaje, para seguir las fotos de boletos. */
+  mensaje: { conversationId: string | null; automationSource: string | null } | null;
+};
+
 async function applyWhatsappStatusPg(
   ctx: StatusChannelContext,
   status: MetaWhatsappStatus,
   nextStatus: MetaWhatsappStatusName
-): Promise<"updated" | "skipped" | "not_found"> {
-  if (!ctx.pool) return "not_found";
+): Promise<ResultadoEstadoMensaje> {
+  if (!ctx.pool) return { outcome: "not_found", mensaje: null };
   const schema = assertAllowedChatDataSchema(ctx.dataSchema);
   const msgT = quoteSchemaTable(schema, "chat_messages");
   const convT = quoteSchemaTable(schema, "chat_conversations");
@@ -2213,7 +2220,9 @@ async function applyWhatsappStatusPg(
   if (cols.has("provider_message_id")) idClauses.push("m.provider_message_id = $3");
 
   const found = await ctx.pool.query(
-    `SELECT m.id::text, m.whatsapp_delivery_status, m.raw_payload
+    `SELECT m.id::text, m.whatsapp_delivery_status, m.raw_payload,
+            m.conversation_id::text AS conversation_id,
+            to_jsonb(m) ->> automation_source AS automation_source
      FROM ${msgT} m
      JOIN ${convT} c ON c.id = m.conversation_id
      WHERE m.empresa_id = $1::uuid
@@ -2223,10 +2232,19 @@ async function applyWhatsappStatusPg(
     [ctx.empresaId, ctx.channel.id, id]
   );
   const row = found.rows[0] as
-    | { id: string; whatsapp_delivery_status: string | null; raw_payload: unknown }
+    | {
+        id: string;
+        whatsapp_delivery_status: string | null;
+        raw_payload: unknown;
+        conversation_id: string | null;
+        automation_source: string | null;
+      }
     | undefined;
-  if (!row) return "not_found";
-  if (!shouldApplyWhatsappStatus(row.whatsapp_delivery_status, nextStatus)) return "skipped";
+  if (!row) return { outcome: "not_found", mensaje: null };
+  const mensajePg = { conversationId: row.conversation_id, automationSource: row.automation_source };
+  if (!shouldApplyWhatsappStatus(row.whatsapp_delivery_status, nextStatus)) {
+    return { outcome: "skipped", mensaje: mensajePg };
+  }
 
   const receivedAt = new Date().toISOString();
   const timestampIso = metaStatusTimestampToIso(status.timestamp);
@@ -2255,7 +2273,7 @@ async function applyWhatsappStatusPg(
   }
   addSet("raw_payload", JSON.stringify(rawPayload), "::jsonb");
 
-  if (sets.length === 0) return "skipped";
+  if (sets.length === 0) return { outcome: "skipped", mensaje: mensajePg };
   await ctx.pool.query(`UPDATE ${msgT} SET ${sets.join(", ")} WHERE id = $1::uuid`, params);
 
   console.info(`${WH_STATUS}[message-updated]`, {
@@ -2268,27 +2286,39 @@ async function applyWhatsappStatusPg(
     recipient_id: status.recipient_id ?? null,
     error_code: error.code,
   });
-  return "updated";
+  return { outcome: "updated", mensaje: mensajePg };
 }
 
 async function applyWhatsappStatusPostgrest(
   ctx: StatusChannelContext,
   status: MetaWhatsappStatus,
   nextStatus: MetaWhatsappStatusName
-): Promise<"updated" | "skipped" | "not_found"> {
+): Promise<ResultadoEstadoMensaje> {
   const id = status.id?.trim() ?? "";
   const { data, error } = await ctx.supabase
     .from("chat_messages")
-    .select("id, whatsapp_delivery_status, raw_payload")
+    .select("id, whatsapp_delivery_status, raw_payload, conversation_id, automation_source")
     .eq("empresa_id", ctx.empresaId)
     .eq("wa_message_id", id)
     .maybeSingle();
   if (error) throw new Error(error.message);
   const row = data as
-    | { id: string; whatsapp_delivery_status?: string | null; raw_payload?: unknown }
+    | {
+        id: string;
+        whatsapp_delivery_status?: string | null;
+        raw_payload?: unknown;
+        conversation_id?: string | null;
+        automation_source?: string | null;
+      }
     | null;
-  if (!row) return "not_found";
-  if (!shouldApplyWhatsappStatus(row.whatsapp_delivery_status, nextStatus)) return "skipped";
+  if (!row) return { outcome: "not_found", mensaje: null };
+  const mensaje = {
+    conversationId: row.conversation_id ?? null,
+    automationSource: row.automation_source ?? null,
+  };
+  if (!shouldApplyWhatsappStatus(row.whatsapp_delivery_status, nextStatus)) {
+    return { outcome: "skipped", mensaje };
+  }
 
   const receivedAt = new Date().toISOString();
   const timestampIso = metaStatusTimestampToIso(status.timestamp);
@@ -2316,7 +2346,7 @@ async function applyWhatsappStatusPostgrest(
     recipient_id: status.recipient_id ?? null,
     error_code: statusError.code,
   });
-  return "updated";
+  return { outcome: "updated", mensaje };
 }
 
 async function processWhatsappStatusValue(
@@ -2358,10 +2388,40 @@ async function processWhatsappStatusValue(
     }
 
     try {
-      const outcome =
+      const { outcome, mensaje } =
         resolved.ctx.useTenantPg && resolved.ctx.pool
           ? await applyWhatsappStatusPg(resolved.ctx, status, nextStatus)
           : await applyWhatsappStatusPostgrest(resolved.ctx, status, nextStatus);
+
+      /**
+       * Las fotos de boletos se siguen una por una: el aviso se anota en la imagen y, si
+       * falló, se reintenta. Solo para esos mensajes; el resto no paga ninguna consulta extra.
+       */
+      if (
+        outcome === "updated" &&
+        mensaje?.conversationId &&
+        (mensaje.automationSource ?? "").startsWith("sorteo_ticket")
+      ) {
+        const err = firstMetaStatusError(status);
+        try {
+          await registrarEstadoDeImagenDeBoleto({
+            empresaId: resolved.ctx.empresaId,
+            conversationId: mensaje.conversationId,
+            channelId: resolved.ctx.channel.id,
+            waMessageId: wamid,
+            estado: nextStatus,
+            errorCode: err.code,
+            errorMessage: err.message,
+          });
+        } catch (e) {
+          console.warn(`${WH_STATUS}[boleto-imagen]`, {
+            wamid,
+            status: nextStatus,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+
       if (outcome === "updated") processed += 1;
       else {
         skipped += 1;

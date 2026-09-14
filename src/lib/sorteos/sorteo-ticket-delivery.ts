@@ -5,10 +5,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-admin";
 import { getSingleClientName } from "@/lib/instance/single-client";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import { fetchSorteoRowTicketFieldsFromPg } from "@/lib/sorteos/sorteo-order-direct-pg";
-import { persistOutgoingChatMessage } from "@/lib/chat/outgoing-message-persist";
 import { resolveOutboundTextContextFromIds } from "@/lib/chat/outbound-send-dispatch";
-import { sendWhatsAppImage } from "@/lib/chat/whatsapp-send-service";
-import { sendYCloudWhatsappMediaViaLink } from "@/lib/chat/ycloud-send-service";
 import type { EnsureSorteoOrderCreatedData } from "@/lib/sorteos/sorteo-order-from-chat";
 import { flowDataStubFromEntrada, loadSorteoTicketEntradaDbSnapshot } from "@/lib/sorteos/sorteo-ticket-admin";
 import {
@@ -33,6 +30,13 @@ import {
   sorteoTicketGeneratedPath,
   uploadGeneratedTicketPng,
 } from "@/lib/sorteos/sorteo-ticket-storage";
+import {
+  actualizarImagenesDeEntrega,
+  esperar,
+  mandarYRegistrarImagen,
+  PAUSA_ENTRE_IMAGENES_MS,
+  reenviarImagenesDeEntrega,
+} from "@/lib/sorteos/sorteo-ticket-envio-imagenes";
 
 export type SorteoTicketTrigger = "confirmacion_final" | "comprobante_imagen";
 
@@ -593,22 +597,24 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       contactId: input.contactId,
     });
 
-    let sendResult: { ok: boolean; waMessageId?: string | null; raw?: unknown; error?: string } = {
-      ok: false,
-      error: "sin_imagenes",
-    };
-    let waId: string | null = null;
+    /**
+     * Cada foto se manda de a una, con una pausa entre medio, y queda anotada por separado en
+     * `payload_snapshot.imagenes` con su id de mensaje. Así el aviso de entrega de Meta de cada
+     * una tiene dónde caer: antes la fila quedaba «enviada» apenas Meta aceptaba los envíos,
+     * aunque una de las fotos no llegara nunca al teléfono.
+     *
+     * Si Meta rechaza una, no se corta la tanda: las que siguen igual se mandan y la rechazada
+     * queda marcada para reenviar.
+     */
+    await db
+      .from("sorteo_ticket_deliveries")
+      .update({ provider: outbound.provider, channel_id: input.channelId })
+      .eq("id", rowId);
 
+    let waId: string | null = null;
+    let rechazadas = 0;
     for (const hoja of hojas) {
-      const signed = await createSignedUrlForTicket(supabase, hoja.genPath, 600);
-      if (!signed.url) {
-        throw new Error(signed.error ?? "signed_url");
-      }
-      console.info("[sorteo-ticket] signed_url_created", {
-        deliveryId: rowId,
-        hasUrl: true,
-        imagen: hoja.n,
-      });
+      if (hoja.n > 1) await esperar(PAUSA_ENTRE_IMAGENES_MS);
 
       /** Con varias fotos, cada una dice de cuál boleto es; con una sola, el pie de siempre. */
       const pie =
@@ -616,83 +622,58 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
           ? `${caption} — Boleto ${hoja.n} de ${hojas.length} · N.º ${hoja.numero}`.slice(0, 1024)
           : caption;
 
-      if (outbound.provider === "ycloud") {
-        sendResult = await sendYCloudWhatsappMediaViaLink({
-          apiKey: outbound.apiKey,
-          fromE164: outbound.fromE164,
-          toDigits: outbound.toDigits,
-          kind: "image",
-          mediaLink: signed.url,
-          caption: pie,
-        });
-      } else {
-        sendResult = await sendWhatsAppImage({
-          toDigits: outbound.toDigits,
-          phoneNumberId: outbound.phoneNumberId,
-          accessToken: outbound.accessToken,
-          imageUrl: signed.url,
-          caption: pie,
-        });
-      }
-
-      if (!sendResult.ok) {
-        console.warn("[sorteo-ticket] whatsapp_send_error", {
-          deliveryId: rowId,
-          provider: outbound.provider,
-          imagen: hoja.n,
-          de: hojas.length,
-          error: sendResult.error ?? "send_failed",
-        });
-        /*
-         * Si falla una del medio, se corta acá. Las anteriores ya llegaron y la venta está
-         * hecha: la fila queda en error con el detalle, para poder reenviar desde el inbox.
-         */
-        throw new Error(sendResult.error ?? "send_failed");
-      }
-
-      console.info("[sorteo-ticket] whatsapp_send_ok", {
+      const r = await mandarYRegistrarImagen({
+        supabase,
+        empresaId,
         deliveryId: rowId,
-        whatsapp_message_id: sendResult.waMessageId ?? null,
-        provider: outbound.provider,
-        imagen: hoja.n,
-        de: hojas.length,
+        conversationId: conversationId?.trim() || null,
+        outbound,
+        imagen: {
+          n: hoja.n,
+          de: hojas.length,
+          numero: hoja.numero,
+          storage_path: hoja.genPath,
+          pie,
+        },
+        automationSource: "sorteo_ticket",
+        prefijoChat: "Ticket imagen",
       });
-
-      if (typeof sendResult.waMessageId === "string" && sendResult.waMessageId) {
-        waId = sendResult.waMessageId;
-      }
-
-      if (conversationId?.trim()) {
-        await persistOutgoingChatMessage(supabase, {
-          conversation: { id: conversationId.trim(), empresa_id: empresaId },
-          content: pie ? `Ticket imagen\n${pie}` : "Ticket imagen enviado",
-          messageType: "image",
-          waMessageId: sendResult.waMessageId ?? null,
-          raw: sendResult.raw ?? {},
-          senderType: "system",
-          automationSource: "sorteo_ticket",
-        });
-      }
+      if (r.ok) waId = r.waMessageId;
+      else rechazadas++;
     }
 
+    /** El estado final sale de las imágenes: si alguna quedó rechazada, la fila va a error. */
+    const final = await actualizarImagenesDeEntrega(supabase, empresaId, rowId, (imgs) => imgs, {
+      forzarEstadoFinal: true,
+    });
     await db
       .from("sorteo_ticket_deliveries")
       .update({
-        status: "sent",
         whatsapp_message_id: waId,
-        provider: outbound.provider,
-        channel_id: input.channelId,
         sent_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq("id", rowId);
 
+    const statusFinal = final?.status ?? (rechazadas > 0 ? "error" : "sent");
     console.info("[sorteo-ticket] delivery_saved", {
       deliveryId: rowId,
-      status: "sent",
+      status: statusFinal,
       whatsapp_message_id: waId,
       provider: outbound.provider,
+      imagenes: hojas.length,
+      rechazadas,
     });
+
+    if (rechazadas === hojas.length) {
+      return {
+        ok: false,
+        skipped: false,
+        reason: "send_failed",
+        deliveryId: rowId,
+        lastStatus: "error",
+      };
+    }
 
     return {
       ok: true,
@@ -940,115 +921,23 @@ export function buildImageOnlyStubText(config: Record<string, unknown>): string 
 
 /**
  * Reenvía por WhatsApp un ticket ya generado (misma fila, nuevo envío; no duplica orden).
+ *
+ * Con varias fotos manda las que no se confirmaron como entregadas; si llegaron todas, las
+ * manda todas de nuevo. Antes reenviaba solo la primera imagen, así que un boleto 3 de 3 que
+ * no llegó no había forma de volver a mandarlo.
  */
 export async function resendSorteoTicketByDeliveryId(input: {
   supabase: AppSupabaseClient;
   empresaId: string;
   deliveryId: string;
-}): Promise<{ ok: boolean; error?: string }> {
-  const schema = await fetchDataSchemaForEmpresaId(input.empresaId);
-  const db = input.supabase;
-
-  const { data: row, error: r0 } = await db
-    .from("sorteo_ticket_deliveries")
-    .select(
-      "id, entrada_id, sorteo_id, conversation_id, channel_id, storage_path, empresa_id, numero_orden, payload_snapshot"
-    )
-    .eq("id", input.deliveryId)
-    .eq("empresa_id", input.empresaId)
-    .maybeSingle();
-  if (r0 || !row) return { ok: false, error: "not_found" };
-
-  const storagePath = (row as { storage_path?: string | null }).storage_path?.trim();
-  if (!storagePath) return { ok: false, error: "no_file" };
-
-  const convId = (row as { conversation_id?: string | null }).conversation_id;
-  const channelId = (row as { channel_id?: string | null }).channel_id;
-  if (!convId || !channelId) return { ok: false, error: "no_conversation" };
-
-  const { data: conv } = await db
-    .from("chat_conversations")
-    .select("contact_id")
-    .eq("id", convId)
-    .maybeSingle();
-  const contactId = (conv as { contact_id?: string } | null)?.contact_id;
-  if (!contactId) return { ok: false, error: "no_contact" };
-
-  const sorteoId = (row as { sorteo_id: string }).sorteo_id;
-  const sr = await loadSorteoRowForTicket({
+  soloN?: number[];
+}): Promise<{ ok: boolean; error?: string; enviadas?: number; numeros?: string[] }> {
+  const r = await reenviarImagenesDeEntrega({
     supabase: input.supabase,
     empresaId: input.empresaId,
-    sorteoId,
-  });
-  const cfg = normalizeTicketImageConfig(sr?.ticket_image_config);
-  const sorteoNombre = String(sr?.nombre ?? "").trim();
-
-  const signed = await createSignedUrlForTicket(input.supabase, storagePath, 600);
-  if (!signed.url) return { ok: false, error: signed.error ?? "signed_url" };
-
-  let outbound: Awaited<ReturnType<typeof resolveOutboundTextContextFromIds>>;
-  try {
-    outbound = await resolveOutboundTextContextFromIds(
-      input.supabase,
-      { contactId, channelId },
-      { dataSchema: schema, empresaId: input.empresaId }
-    );
-  } catch {
-    return { ok: false, error: "outbound" };
-  }
-
-  const numOrden = String((row as { numero_orden?: string | null }).numero_orden ?? "");
-  const caption =
-    (cfg.caption ?? "").trim() ||
-    (cfg.title ?? "").trim() ||
-    `Orden Nº ${numOrden} — ${sorteoNombre}`.slice(0, 1024);
-
-  let sendResult: { ok: boolean; waMessageId?: string | null; raw?: unknown; error?: string };
-  if (outbound.provider === "ycloud") {
-    sendResult = await sendYCloudWhatsappMediaViaLink({
-      apiKey: outbound.apiKey,
-      fromE164: outbound.fromE164,
-      toDigits: outbound.toDigits,
-      kind: "image",
-      mediaLink: signed.url,
-      caption,
-    });
-  } else {
-    sendResult = await sendWhatsAppImage({
-      toDigits: outbound.toDigits,
-      phoneNumberId: outbound.phoneNumberId,
-      accessToken: outbound.accessToken,
-      imageUrl: signed.url,
-      caption,
-    });
-  }
-
-  if (!sendResult.ok) return { ok: false, error: sendResult.error ?? "send_failed" };
-
-  const waId =
-    typeof sendResult.waMessageId === "string" && sendResult.waMessageId
-      ? sendResult.waMessageId
-      : null;
-
-  await db
-    .from("sorteo_ticket_deliveries")
-    .update({
-      whatsapp_message_id: waId,
-      provider: outbound.provider,
-      sent_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.deliveryId);
-
-  await persistOutgoingChatMessage(input.supabase, {
-    conversation: { id: convId, empresa_id: input.empresaId },
-    content: caption ? `Ticket imagen (reenvío)\n${caption}` : "Ticket imagen reenviado",
-    messageType: "image",
-    waMessageId: waId,
-    raw: sendResult.raw ?? {},
-    senderType: "system",
+    deliveryId: input.deliveryId,
+    soloN: input.soloN,
     automationSource: "sorteo_ticket_resend",
   });
-
-  return { ok: true };
+  return { ok: r.ok, error: r.error, enviadas: r.enviadas, numeros: r.numeros };
 }
