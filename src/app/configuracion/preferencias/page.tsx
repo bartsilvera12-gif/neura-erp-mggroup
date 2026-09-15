@@ -71,7 +71,7 @@ export default function ConfiguracionPreferenciasPage() {
             <div>
               <label className={F_LABEL}>Zona horaria</label>
               <select name="timezone" value={form.timezone} onChange={handleChange} className={F_SELECT}>
-                <option value="America/Asuncion">América/Asunción (Paraguay, UTC-4)</option>
+                <option value="America/Asuncion">América/Asunción (Paraguay, UTC-3)</option>
                 <option value="America/Sao_Paulo">América/São Paulo (Brasil, UTC-3)</option>
                 <option value="America/Buenos_Aires">América/Buenos Aires (Argentina, UTC-3)</option>
                 <option value="America/Lima">América/Lima (Perú, UTC-5)</option>

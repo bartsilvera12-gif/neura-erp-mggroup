@@ -70,6 +70,7 @@
     "qa:boletos-entrega": "tsx scripts/qa-boletos-entrega.ts",
     "qa:boleto-subida-meta": "tsx --conditions=react-server scripts/qa-boleto-subida-meta.ts",
     "qa:filtro-fecha-chat": "tsx scripts/qa-filtro-fecha-chat.ts",
+    "qa:horario-tablero": "tsx scripts/qa-horario-tablero.ts",
     "qa:comprobantes-compras": "tsx --conditions=react-server scripts/qa-comprobantes-compras.ts",
     "qa:comprobante-rechazo": "tsx --conditions=react-server scripts/qa-comprobante-rechazo.ts"
   },

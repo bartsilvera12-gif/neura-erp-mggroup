@@ -10,14 +10,21 @@ import {
   sorteoActivoMasReciente,
 } from "@/lib/sorteos/revendedores-ranking-pg";
 import { cargarVentasPorCanal } from "@/lib/sorteos/ventas-por-canal-pg";
+import { asuncionRangeBoundsUtc } from "@/lib/sorteos/kpis-time-bounds";
 
 export const dynamic = "force-dynamic";
 
-/** `YYYY-MM-DD` → extremos del día. Sin fecha, null: el ranking no se acota. */
+/**
+ * `YYYY-MM-DD` → extremos del día en Paraguay. Sin fecha, null: el ranking no se acota.
+ *
+ * Antes cortaba en UTC (`T00:00:00Z`): el día quedaba corrido tres horas y lo vendido
+ * después de las 21:00 caía en el día siguiente.
+ */
 function limite(valor: string | null, fin: boolean): string | null {
   const v = (valor ?? "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
-  return fin ? `${v}T23:59:59.999Z` : `${v}T00:00:00.000Z`;
+  const { start, end } = asuncionRangeBoundsUtc(v, v);
+  return fin ? end : start;
 }
 
 /**

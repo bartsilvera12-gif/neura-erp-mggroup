@@ -1,29 +1,30 @@
+import { inicioDelDiaEnParaguay, sumarDias, ymdEnParaguay } from "@/lib/fecha-paraguay";
+
 /**
- * Límites de día y mes calendario en America/Asuncion (PY, UTC−4 fijo),
- * expresados en ISO UTC para filtrar columnas timestamptz en Postgres.
+ * Límites de día y mes calendario en America/Asuncion, expresados en ISO UTC para filtrar
+ * columnas timestamptz en Postgres. `end` es inclusivo (el último milisegundo del período).
+ *
+ * Antes tenían UTC−4 escrito a mano; Paraguay está en UTC−3 desde octubre de 2024, así que
+ * «Hoy» y «Mes» se corrían una hora: lo vendido entre las 23:00 y la medianoche contaba para
+ * el día siguiente. Ahora el desfase sale del huso (`fecha-paraguay.ts`).
  */
 
-export function asuncionDayBoundsUtc(now = new Date()): { start: string; end: string } {
-  const ymd = now.toLocaleDateString("en-CA", { timeZone: "America/Asuncion" });
-  const start = new Date(`${ymd}T00:00:00-04:00`);
-  const end = new Date(`${ymd}T23:59:59.999-04:00`);
+/** Del primer instante del día `desdeYmd` al último del día `hastaYmd`, en Paraguay. */
+export function asuncionRangeBoundsUtc(desdeYmd: string, hastaYmd: string): { start: string; end: string } {
+  const start = inicioDelDiaEnParaguay(desdeYmd);
+  const end = new Date(inicioDelDiaEnParaguay(sumarDias(hastaYmd, 1)).getTime() - 1);
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
+export function asuncionDayBoundsUtc(now = new Date()): { start: string; end: string } {
+  const hoy = ymdEnParaguay(now);
+  return asuncionRangeBoundsUtc(hoy, hoy);
+}
+
 export function asuncionMonthBoundsUtc(now = new Date()): { start: string; end: string } {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Asuncion",
-    year: "numeric",
-    month: "numeric",
-  }).formatToParts(now);
-  const y = Number(parts.find((p) => p.type === "year")?.value);
-  const monthNum = Number(parts.find((p) => p.type === "month")?.value);
-  const start = new Date(`${y}-${String(monthNum).padStart(2, "0")}-01T00:00:00-04:00`);
-  const nextY = monthNum === 12 ? y + 1 : y;
-  const nextM = monthNum === 12 ? 1 : monthNum + 1;
-  const end = new Date(
-    `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00-04:00`
-  );
-  end.setMilliseconds(end.getMilliseconds() - 1);
-  return { start: start.toISOString(), end: end.toISOString() };
+  const hoy = ymdEnParaguay(now);
+  const primero = `${hoy.slice(0, 8)}01`;
+  const [y, m] = hoy.split("-").map(Number);
+  const primeroDelSiguiente = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  return asuncionRangeBoundsUtc(primero, sumarDias(primeroDelSiguiente, -1));
 }
