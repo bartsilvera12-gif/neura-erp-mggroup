@@ -145,9 +145,9 @@ export type ComprobanteValidacionListRow = {
 
 export const DEFAULT_COMPROBANTE_VALIDATION_MESSAGES: ComprobanteValidationMessages = {
   hash_duplicado:
-    "Este comprobante ya fue registrado en una compra anterior. Si es un error, enviá otro comprobante o hablá con un asesor.",
+    "Este comprobante ya fue registrado en una compra anterior. Si es un error, tocá «Hablar con asesor» y lo revisamos.",
   ocr_duplicado:
-    "Detectamos que los datos del comprobante coinciden con un pago ya registrado. Enviá otro comprobante o contactá a un asesor.",
+    "Los datos de este comprobante coinciden con un pago ya registrado. Si es un error, tocá «Hablar con asesor» y lo revisamos.",
   ocr_coincidencia_debil:
     "No pudimos validar automáticamente tu comprobante. Un asesor lo revisará; en breve te contactamos.",
   revision_manual:
@@ -159,9 +159,9 @@ export const DEFAULT_COMPROBANTE_VALIDATION_MESSAGES: ComprobanteValidationMessa
   datos_bancarios_incoherentes:
     "El comprobante no coincide con los datos bancarios esperados. Podés reenviar el comprobante o hablar con un asesor.",
   comprobante_reenviado:
-    "No podemos tomar un comprobante reenviado de otro chat. Mandanos la captura directo desde la app de tu banco, por favor.",
+    "No podemos tomar un comprobante reenviado de otro chat. Si ya pagaste, tocá «Hablar con asesor» y lo revisamos.",
   comprobante_vencido:
-    "Ese comprobante es de otra fecha y no corresponde a esta compra. Enviá el comprobante del pago que acabás de hacer, por favor.",
+    "Ese comprobante es de otra fecha y no corresponde a esta compra. Si ya pagaste, tocá «Hablar con asesor» y lo revisamos.",
   boton_otro_titulo: "Otro comprobante",
   boton_asesor_titulo: "Hablar con asesor",
 };
