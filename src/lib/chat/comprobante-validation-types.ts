@@ -153,11 +153,11 @@ export const DEFAULT_COMPROBANTE_VALIDATION_MESSAGES: ComprobanteValidationMessa
   revision_manual:
     "Recibimos tu comprobante. Nuestro equipo lo está revisando; en breve te confirmamos. Podés seguir con los datos si el flujo te lo pide.",
   ocr_insuficiente:
-    "No pudimos leer bien el comprobante. Enviá una foto más clara o hablá con un asesor.",
+    "No pudimos leer bien el comprobante. Tocá «Hablar con asesor» y lo revisamos.",
   monto_incoherente:
-    "El comprobante recibido no coincide con el monto seleccionado. Podés reenviar el comprobante o hablar con un asesor.",
+    "El monto del comprobante no coincide con el de tu compra. Tocá «Hablar con asesor» y lo revisamos.",
   datos_bancarios_incoherentes:
-    "El comprobante no coincide con los datos bancarios esperados. Podés reenviar el comprobante o hablar con un asesor.",
+    "El comprobante no coincide con nuestra cuenta de destino. Tocá «Hablar con asesor» y lo revisamos.",
   comprobante_reenviado:
     "No podemos tomar un comprobante reenviado de otro chat. Si ya pagaste, tocá «Hablar con asesor» y lo revisamos.",
   comprobante_vencido:

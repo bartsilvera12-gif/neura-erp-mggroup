@@ -444,11 +444,10 @@ async function insertValidationRow(
 }
 
 /**
- * Un solo botón, «Hablar con asesor», para los comprobantes que no son de esta compra: de
- * otra fecha, reenviados o ya usados. Ofrecer «Otro comprobante» ahí invitaba a probar con
- * otra captura vieja hasta que alguna pase; lo que corresponde es que lo vea una persona.
- * Cuando el problema es de lectura (monto, datos de la cuenta, imagen ilegible) se siguen
- * ofreciendo los dos, porque mandar la foto correcta sí lo resuelve.
+ * Un comprobante rechazado ofrece un solo botón, «Hablar con asesor». Antes también iba
+ * «Otro comprobante», que invitaba a probar capturas hasta que alguna pase; ahora cualquier
+ * rechazo lo ve una persona. Quien se equivocó de foto igual puede mandar otra: el paso del
+ * comprobante sigue esperando una imagen.
  */
 function soloBotonAsesor(settings: { messages: { boton_asesor_titulo: string } }) {
   return [
@@ -615,13 +614,7 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
         advance: false,
         sendInteractive: {
           body: settings.messages.ocr_insuficiente,
-          buttons: [
-            { id: COMPROBANTE_BUTTON_IDS.enviar_otro, title: settings.messages.boton_otro_titulo.slice(0, 20) },
-            {
-              id: COMPROBANTE_BUTTON_IDS.hablar_asesor,
-              title: settings.messages.boton_asesor_titulo.slice(0, 20),
-            },
-          ],
+          buttons: soloBotonAsesor(settings),
         },
       };
     }
@@ -961,13 +954,7 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
       advance: false,
       sendInteractive: {
         body: settings.messages.monto_incoherente,
-        buttons: [
-          { id: COMPROBANTE_BUTTON_IDS.enviar_otro, title: settings.messages.boton_otro_titulo.slice(0, 20) },
-          {
-            id: COMPROBANTE_BUTTON_IDS.hablar_asesor,
-            title: settings.messages.boton_asesor_titulo.slice(0, 20),
-          },
-        ],
+        buttons: soloBotonAsesor(settings),
       },
     };
   }
@@ -982,13 +969,7 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
       advance: false,
       sendInteractive: {
         body: settings.messages.datos_bancarios_incoherentes,
-        buttons: [
-          { id: COMPROBANTE_BUTTON_IDS.enviar_otro, title: settings.messages.boton_otro_titulo.slice(0, 20) },
-          {
-            id: COMPROBANTE_BUTTON_IDS.hablar_asesor,
-            title: settings.messages.boton_asesor_titulo.slice(0, 20),
-          },
-        ],
+        buttons: soloBotonAsesor(settings),
       },
     };
   }
@@ -1003,13 +984,7 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
       advance: false,
       sendInteractive: {
         body: settings.messages.ocr_insuficiente,
-        buttons: [
-          { id: COMPROBANTE_BUTTON_IDS.enviar_otro, title: settings.messages.boton_otro_titulo.slice(0, 20) },
-          {
-            id: COMPROBANTE_BUTTON_IDS.hablar_asesor,
-            title: settings.messages.boton_asesor_titulo.slice(0, 20),
-          },
-        ],
+        buttons: soloBotonAsesor(settings),
       },
     };
   }
