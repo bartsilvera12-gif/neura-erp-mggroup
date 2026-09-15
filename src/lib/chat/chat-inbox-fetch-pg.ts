@@ -302,7 +302,7 @@ export async function fetchChatConversationsFromTenantPg(
   if (vista === "inbox" || vista === "bot") {
     /** Inbox y Bot comparten el mismo universo (abiertas/pendientes); la pestaña se decide al clasificar. */
     whereParts.push(`status IN ('open','pending')`);
-  } else if (vista === "historial") {
+  } else if (vista === "historial" && !filters?.historial_todas) {
     whereParts.push(`status = 'closed'`);
   }
 
@@ -364,8 +364,21 @@ export async function fetchChatConversationsFromTenantPg(
 
   const fch = filters?.channel_id?.trim();
   if (fch) {
-    whereParts.push(`channel_id = $${pi}::uuid`);
+    whereParts.push(`channel_id = ${pi}::uuid`);
     params.push(fch);
+    pi++;
+  }
+
+  const fDesde = filters?.last_message_desde?.trim();
+  if (fDesde && !Number.isNaN(Date.parse(fDesde))) {
+    whereParts.push(`last_message_at >= ${pi}::timestamptz`);
+    params.push(fDesde);
+    pi++;
+  }
+  const fHasta = filters?.last_message_hasta?.trim();
+  if (fHasta && !Number.isNaN(Date.parse(fHasta))) {
+    whereParts.push(`last_message_at < ${pi}::timestamptz`);
+    params.push(fHasta);
     pi++;
   }
 

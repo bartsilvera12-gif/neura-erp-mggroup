@@ -139,6 +139,12 @@ export default async function SorteoCuponesPage({
         >
           Tickets
         </Link>
+        <Link
+          href="/sorteos/comprobantes"
+          className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+        >
+          Comprobantes
+        </Link>
       </div>
 
       {/* Filtros */}

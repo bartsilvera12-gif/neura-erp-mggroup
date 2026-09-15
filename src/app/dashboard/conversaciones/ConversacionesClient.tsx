@@ -12,7 +12,6 @@ import {
   logInboxFlagsBoot,
 } from "@/lib/chat/inbox-observability";
 import { getInboxFlagsSnapshot } from "@/lib/chat/inbox-feature-flags";
-import type { ComprobanteValidacionListRow } from "@/lib/chat/comprobante-validation-types";
 import {
   approveComprobanteValidacion,
   fetchChatChannels,
@@ -64,6 +63,15 @@ import { playInboxNotificationBeep, readInboxNotificationSoundEnabled } from "@/
 import { createBrowserClientForSchema } from "@/lib/supabase";
 import { ChannelBadge } from "@/components/chat/ChannelBadge";
 import { SIMPLE_INBOX_UI } from "@/lib/instance/inbox-simplify";
+import { rejectComprobanteValidacion } from "@/lib/chat/comprobante-revision-actions";
+import { DialogoRechazarComprobante } from "@/components/sorteos/DialogoRechazarComprobante";
+import type { ComprobanteValidacionListRow } from "@/lib/chat/comprobante-validation-types";
+import {
+  describirRangoFechaChat,
+  PRESETS_FECHA_CHAT,
+  rangoFechaChat,
+  ymdEnParaguay,
+} from "@/lib/chat/chat-filtro-fecha";
 
 type ChatMessage = {
   id: string;
@@ -262,7 +270,29 @@ function InboxReplyTurnBadges({ c, dense }: { c: InboxConversation; dense?: bool
   );
 }
 
-function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
+/**
+ * Filtro de fecha de la URL: `?fecha=hoy|ayer|semana|mes|rango|todo` (+ `desde`/`hasta`).
+ *
+ * El historial abre en «Semana» cuando no se eligió nada: sin filtro traía todas las
+ * conversaciones de la empresa de una vez, que es lento y no ayuda a encontrar ninguna.
+ */
+function leerFiltroFechaChat(sp: URLSearchParams, historial: boolean) {
+  const preset = sp.get("fecha")?.trim() || (historial ? "semana" : "todo");
+  const desde = sp.get("desde")?.trim() ?? "";
+  const hasta = sp.get("hasta")?.trim() ?? "";
+  const rango = preset === "todo" ? null : rangoFechaChat(preset, desde, hasta);
+  return { preset, desde, hasta, rango };
+}
+
+/** Historial: todas las conversaciones salvo que se pida ver solo las finalizadas. */
+function historialVeTodas(sp: URLSearchParams | null | undefined): boolean {
+  return sp?.get("ver") !== "finalizadas";
+}
+
+function parseInboxFilters(sp: URLSearchParams, vista?: string): ChatInboxFilters | undefined {
+  const historial = vista === "historial";
+  const { rango } = leerFiltroFechaChat(sp, historial);
+  const historial_todas = historial && historialVeTodas(sp);
   const rawA = sp.get("asignacion");
   const assignment: ChatInboxAssignmentFilter =
     rawA === "mios" ? "mine" : rawA === "sin_asignar" ? "unassigned" : "all";
@@ -279,7 +309,9 @@ function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
     (queue_id && queue_id.length > 0) ||
     status !== null ||
     priority !== null ||
-    (channel_id && channel_id.length > 0);
+    (channel_id && channel_id.length > 0) ||
+    rango !== null ||
+    historial_todas;
   if (!has) return undefined;
   return {
     assignment,
@@ -287,7 +319,109 @@ function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
     status,
     priority,
     channel_id: channel_id && channel_id.length > 0 ? channel_id : null,
+    last_message_desde: rango?.desdeIso ?? null,
+    last_message_hasta: rango?.hastaIso ?? null,
+    historial_todas,
   };
+}
+
+/** Botones Todo / Hoy / Ayer / Semana / Mes / Rango, y en historial «Todas / Solo finalizadas». */
+function FiltroFechaChats(props: {
+  sp: URLSearchParams;
+  historial: boolean;
+  onPatch: (patch: Record<string, string | null>) => void;
+}) {
+  const { sp, historial, onPatch } = props;
+  const { preset, desde, hasta, rango } = leerFiltroFechaChat(sp, historial);
+  const verTodas = historialVeTodas(sp);
+  const hoy = ymdEnParaguay(new Date());
+  const chip = (activo: boolean) =>
+    `rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+      activo ? "bg-[#4FAEB2] text-white shadow-sm" : "text-slate-600 hover:bg-white"
+    }`;
+  const opciones: Array<{ id: string; label: string }> = [
+    { id: "todo", label: "Todo" },
+    ...PRESETS_FECHA_CHAT,
+    { id: "rango", label: "Rango" },
+  ];
+  return (
+    <div className="flex flex-col gap-1.5 shrink-0 min-w-0">
+      <div className="flex flex-wrap items-center gap-2">
+        <div
+          className="flex flex-wrap gap-0.5 rounded-lg border border-slate-200 bg-slate-100/80 p-0.5"
+          role="group"
+          aria-label="Filtrar por fecha del último mensaje"
+        >
+          {opciones.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              className={chip(preset === o.id)}
+              aria-pressed={preset === o.id}
+              onClick={() =>
+                onPatch({
+                  fecha: o.id,
+                  desde: o.id === "rango" ? desde || hoy : null,
+                  hasta: o.id === "rango" ? hasta || hoy : null,
+                })
+              }
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {historial ? (
+          <div
+            className="flex gap-0.5 rounded-lg border border-slate-200 bg-slate-100/80 p-0.5"
+            role="group"
+            aria-label="Qué conversaciones mostrar"
+          >
+            <button type="button" className={chip(verTodas)} aria-pressed={verTodas} onClick={() => onPatch({ ver: null })}>
+              Todas
+            </button>
+            <button
+              type="button"
+              className={chip(!verTodas)}
+              aria-pressed={!verTodas}
+              onClick={() => onPatch({ ver: "finalizadas" })}
+            >
+              Solo finalizadas
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {preset === "rango" ? (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+          <label className="flex items-center gap-1">
+            Desde
+            <input
+              type="date"
+              value={desde}
+              max={hoy}
+              onChange={(e) => onPatch({ fecha: "rango", desde: e.target.value || null })}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-[#4FAEB2]"
+            />
+          </label>
+          <label className="flex items-center gap-1">
+            Hasta
+            <input
+              type="date"
+              value={hasta}
+              max={hoy}
+              onChange={(e) => onPatch({ fecha: "rango", hasta: e.target.value || null })}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-[#4FAEB2]"
+            />
+          </label>
+        </div>
+      ) : null}
+      {rango ? (
+        <p className="text-[11px] text-slate-500">
+          Último mensaje: {describirRangoFechaChat(rango, preset)}
+          {historial ? (verTodas ? " · todas las conversaciones" : " · solo finalizadas") : ""}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function formatChannelOptionLabel(c: ChatChannelRow): string {
@@ -409,6 +543,7 @@ export function ConversacionesClient({
   const [compLoading, setCompLoading] = useState(false);
   const [compActionId, setCompActionId] = useState<string | null>(null);
   const [compApproveConfirmId, setCompApproveConfirmId] = useState<string | null>(null);
+  const [compRechazo, setCompRechazo] = useState<ComprobanteValidacionListRow | null>(null);
   const [compApprovalInfo, setCompApprovalInfo] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [opsQueues, setOpsQueues] = useState<ChatQueueListRow[]>([]);
@@ -550,7 +685,7 @@ export function ConversacionesClient({
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent ?? false;
       const sp = new URLSearchParams(searchParamsRef.current?.toString() ?? "");
-      const filters = parseInboxFilters(sp);
+      const filters = parseInboxFilters(sp, vista);
       const previousCount = conversationsRef.current.length;
       if (silent) {
         chatListUiLog("refetch-start", {
@@ -1071,13 +1206,22 @@ export function ConversacionesClient({
       const id = row.id;
       const status = typeof row.status === "string" ? row.status : null;
       const hiddenByTag = row.hidden_by_tag === true;
-      const stillInScope = status === "open" || status === "pending";
+      /**
+       * En historial una conversación finalizada también está en la lista (y con «Todas», las
+       * abiertas). Antes solo contaban abiertas/pendientes: al abrir un chat finalizado, marcarlo
+       * leído disparaba este aviso y el chat desaparecía de la lista.
+       */
+      const enHistorial = vista === "historial";
+      const stillInScope = enHistorial
+        ? historialVeTodas(searchParamsRef.current) || status === "closed"
+        : status === "open" || status === "pending";
       setConversations((prev) => {
         const idx = prev.findIndex((c) => c.id === id);
         if (idx < 0) {
           // Conversación no presente en la lista local. Solo si entra al universo
-          // visible (open/pending, no oculta) vale la pena reconciliar.
-          if (stillInScope && !hiddenByTag) scheduleListRefetch(1500);
+          // visible (open/pending, no oculta) vale la pena reconciliar. En historial no:
+          // cada mensaje nuevo de cualquier chat recargaría la lista entera.
+          if (!enHistorial && stillInScope && !hiddenByTag) scheduleListRefetch(1500);
           return prev;
         }
         // Si sale del universo visible, quitarla.
@@ -1115,7 +1259,7 @@ export function ConversacionesClient({
         return next;
       });
     },
-    [scheduleListRefetch]
+    [scheduleListRefetch, vista]
   );
 
   /**
@@ -1787,6 +1931,50 @@ export function ConversacionesClient({
         </button>
       ) : null}
 
+      {compRechazo ? (
+        <DialogoRechazarComprobante
+          nombre={selected?.contact?.name ?? null}
+          monto={
+            compRechazo.monto_validacion_ocr_gs ??
+            (Number(String(compRechazo.ocr_monto ?? "").replace(/\D/g, "")) || null)
+          }
+          numeroOrden={compRechazo.sorteo_entrada_id ? "" : null}
+          boletas={0}
+          onCancelar={() => setCompRechazo(null)}
+          onConfirmar={(motivo, avisar, mensaje) => {
+            const v = compRechazo;
+            const convId = selectedId;
+            setCompRechazo(null);
+            if (!v || !convId) return;
+            void (async () => {
+              setCompActionId(v.id);
+              setSendError(null);
+              setCompApprovalInfo(null);
+              try {
+                const r = await rejectComprobanteValidacion({
+                  validacionId: v.id,
+                  motivo,
+                  avisarCliente: avisar,
+                  mensaje,
+                });
+                if (!r.ok) setSendError(r.message);
+                else {
+                  const partes = ["Comprobante rechazado."];
+                  if (r.ordenRechazada) partes.push("La compra que había generado quedó anulada.");
+                  if (avisar) partes.push(r.avisado ? "Se le avisó por WhatsApp." : `No se le pudo avisar: ${r.avisoError ?? "error"}.`);
+                  setCompApprovalInfo(partes.join(" "));
+                }
+                setCompVals(await fetchComprobanteValidacionesForConversation(convId));
+              } catch (e) {
+                setSendError(e instanceof Error ? e.message : "No se pudo rechazar el comprobante");
+              } finally {
+                setCompActionId(null);
+              }
+            })();
+          }}
+        />
+      ) : null}
+
       {compApproveConfirmId ? (
         <div
           className="fixed inset-0 z-[105] flex items-center justify-center bg-black/40 p-4"
@@ -2347,6 +2535,14 @@ export function ConversacionesClient({
         </div>
       ) : null}
 
+      {mode === "inbox" ? (
+        <FiltroFechaChats
+          sp={new URLSearchParams(searchParams?.toString() ?? "")}
+          historial={false}
+          onPatch={patchInboxQuery}
+        />
+      ) : null}
+
       {mode === "historial" ? (
         <div className="flex flex-wrap items-stretch gap-2 shrink-0 min-w-0">
           <input
@@ -2358,6 +2554,14 @@ export function ConversacionesClient({
             aria-label="Buscar en historial"
           />
         </div>
+      ) : null}
+
+      {mode === "historial" ? (
+        <FiltroFechaChats
+          sp={new URLSearchParams(searchParams?.toString() ?? "")}
+          historial
+          onPatch={patchInboxQuery}
+        />
       ) : null}
 
       {(!SIMPLE_INBOX_UI && (mode === "historial" || vista === "inbox")) ? (
@@ -2502,7 +2706,11 @@ export function ConversacionesClient({
               <div className="p-4 text-xs text-slate-400 text-center animate-pulse">Cargando…</div>
             ) : conversations.length === 0 ? (
               <div className="p-4 text-xs text-slate-500 text-center space-y-1">
-                <p>No hay conversaciones aún</p>
+                <p>
+                  {searchParams?.get("fecha") || mode === "historial"
+                    ? "No hay conversaciones en esas fechas. Probá con otro período o «Todo»."
+                    : "No hay conversaciones aún"}
+                </p>
               </div>
             ) : visibleConversations.length === 0 ? (
               <div className="p-4 text-xs text-slate-500 text-center space-y-1">
@@ -3011,7 +3219,12 @@ export function ConversacionesClient({
                               {v.sorteo_entrada_id && v.estado_validacion !== "aprobado_manual" ? (
                                 <span className="text-sky-700 font-medium">Compra cerrada (entrada existente)</span>
                               ) : null}
-                              {!v.sorteo_entrada_id && v.estado_validacion !== "aprobado_manual" ? (
+                              {v.estado_validacion === "rechazado_manual" ? (
+                                <span className="text-rose-700 font-medium">Rechazado manualmente</span>
+                              ) : null}
+                              {!v.sorteo_entrada_id &&
+                              v.estado_validacion !== "aprobado_manual" &&
+                              v.estado_validacion !== "rechazado_manual" ? (
                                 <button
                                   type="button"
                                   disabled={compActionId === v.id}
@@ -3022,6 +3235,19 @@ export function ConversacionesClient({
                                   className="text-emerald-700 font-medium hover:underline disabled:opacity-50"
                                 >
                                   Aprobar (cerrar compra)
+                                </button>
+                              ) : null}
+                              {v.estado_validacion !== "rechazado_manual" ? (
+                                <button
+                                  type="button"
+                                  disabled={compActionId === v.id}
+                                  onClick={() => {
+                                    setCompRechazo(v);
+                                    setCompApprovalInfo(null);
+                                  }}
+                                  className="text-rose-700 font-medium hover:underline disabled:opacity-50"
+                                >
+                                  Rechazar
                                 </button>
                               ) : null}
                             </li>

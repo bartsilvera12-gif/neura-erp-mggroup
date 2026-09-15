@@ -191,9 +191,13 @@ const MENU_STRUCTURE: MenuItem[] = [
      * quien ya tiene Sorteos, que es exactamente quien lo necesita.
      */
     children: isSorteosClientSchema(process.env.NEXT_PUBLIC_NEURA_CLIENT_SCHEMA)
-      ? [{ label: "Vendedores", href: "/vendedores" }]
+      ? [
+          { label: "Comprobantes", href: "/sorteos/comprobantes" },
+          { label: "Vendedores", href: "/vendedores" },
+        ]
       : [
           { label: "Tickets / Comprobantes", href: "/sorteos/tickets", exactMatch: true },
+          { label: "Comprobantes y compras", href: "/sorteos/comprobantes" },
           { label: "Vendedores", href: "/vendedores" },
         ],
   },

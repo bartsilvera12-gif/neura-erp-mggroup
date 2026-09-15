@@ -93,6 +93,18 @@ export type ChatInboxFilters = {
   priority?: string | null;
   /** Filtro opcional por `chat_conversations.channel_id` (UUID). */
   channel_id?: string | null;
+  /**
+   * Último mensaje dentro de [desde, hasta): ISO UTC ya cortados en días de Paraguay
+   * (`rangoFechaChat`). Sirve para encontrar conversaciones de un día o período.
+   */
+  last_message_desde?: string | null;
+  last_message_hasta?: string | null;
+  /**
+   * Solo historial: también las que no están finalizadas. Una conversación vuelve a quedar
+   * abierta apenas la persona escribe de nuevo, así que «solo finalizadas» deja afuera a casi
+   * todos los que compraron más de una vez.
+   */
+  historial_todas?: boolean;
 };
 
 export type InboxConversation = {
@@ -323,6 +335,9 @@ async function fetchChatConversationsUnsafe(
     channel_id: filters?.channel_id ?? null,
     status: filters?.status ?? null,
     priority: filters?.priority ?? null,
+    last_message_desde: filters?.last_message_desde ?? null,
+    last_message_hasta: filters?.last_message_hasta ?? null,
+    historial_todas: filters?.historial_todas === true,
     timestamp: ts,
   });
 
@@ -429,7 +444,7 @@ async function fetchChatConversationsUnsafe(
     if (vista === "inbox" || vista === "bot") {
       /** Misma base abierta/pendiente; Inbox vs Bot se resuelve en memoria (`conversationBelongsToBotTab`). */
       qb = qb.in("status", ["open", "pending"]);
-    } else if (vista === "historial") {
+    } else if (vista === "historial" && !filters?.historial_todas) {
       qb = qb.eq("status", "closed");
     }
 
@@ -520,6 +535,11 @@ async function fetchChatConversationsUnsafe(
     if (fch) {
       qb = qb.eq("channel_id", fch);
     }
+
+    const fDesde = filters?.last_message_desde?.trim();
+    const fHasta = filters?.last_message_hasta?.trim();
+    if (fDesde && !Number.isNaN(Date.parse(fDesde))) qb = qb.gte("last_message_at", fDesde);
+    if (fHasta && !Number.isNaN(Date.parse(fHasta))) qb = qb.lt("last_message_at", fHasta);
 
     return { builder: qb };
   };
