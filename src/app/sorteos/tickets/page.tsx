@@ -154,12 +154,13 @@ export default function SorteosTicketsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- carga inicial; filtros con botón Filtrar
   }, []);
 
-  async function openSignedUrl(ticketId: string) {
+  /** `n`: qué foto de la compra abrir (1 = primer boleto). */
+  async function openSignedUrl(ticketId: string, n = 1) {
     setBusyId(ticketId);
     setErr(null);
     try {
       const res = await fetchWithSupabaseSession(
-        `/api/sorteos/tickets/${encodeURIComponent(ticketId)}/signed-url?ttl=600`,
+        `/api/sorteos/tickets/${encodeURIComponent(ticketId)}/signed-url?ttl=600&n=${n}`,
         { cache: "no-store" },
       );
       const json = (await res.json()) as { success?: boolean; data?: { url?: string }; error?: string };
@@ -450,6 +451,25 @@ export default function SorteosTicketsPage() {
                         </div>
                         {porBoleto.length > 0 ? (
                           <div className="mt-2 flex flex-wrap items-center justify-end gap-1">
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                              Ver:
+                            </span>
+                            {porBoleto.map((b) => (
+                              <button
+                                key={b.n}
+                                type="button"
+                                disabled={busyId === r.id}
+                                title={`Abrir la imagen del boleto ${b.numero}`}
+                                onClick={() => void openSignedUrl(r.id, b.n)}
+                                className="inline-flex items-center rounded-md border border-[#4FAEB2]/30 bg-[#4FAEB2]/8 px-2 py-0.5 font-mono text-[11px] font-semibold text-[#3F8E91] transition-colors hover:bg-[#4FAEB2]/12 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {b.numero}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {porBoleto.length > 0 ? (
+                          <div className="mt-1 flex flex-wrap items-center justify-end gap-1">
                             <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
                               Reenviar uno:
                             </span>

@@ -16,6 +16,7 @@ import {
   registrarEnvioDeImagen,
   registrarFalloDeEnvio,
   resumirImagenes,
+  rutaDeImagenDeBoleto,
   tocaReintentoAutomatico,
   type ImagenBoleto,
 } from "@/lib/sorteos/sorteo-ticket-imagenes";
@@ -255,6 +256,25 @@ console.log("\nBotones para reenviar un boleto solo");
   chequear(
     "una sola imagen con seguimiento: sin botones",
     boletosDeEntrega({ imagenes: [imgs[0]] }, `${BASE}-1.png`).length === 0
+  );
+}
+
+console.log("\nVer la imagen de un boleto");
+{
+  /** Como la orden 313: la fila guarda solo `…/1-1.png`. */
+  const snap = { cupones: NUMEROS };
+  const fila = "3648/999/entrada/1-1.png";
+  chequear("boleto 1: el archivo guardado", rutaDeImagenDeBoleto(snap, fila, 1) === fila);
+  chequear("boleto 3 (8753): el -3", rutaDeImagenDeBoleto(snap, fila, 3) === "3648/999/entrada/1-3.png");
+  chequear("un boleto que no está en la compra: nada", rutaDeImagenDeBoleto(snap, fila, 4) === null);
+  chequear(
+    "con seguimiento usa el archivo anotado",
+    rutaDeImagenDeBoleto({ imagenes: imgs }, `${BASE}-1.png`, 2) === `${BASE}-2.png`
+  );
+  chequear(
+    "compra de una sola imagen: solo la 1",
+    rutaDeImagenDeBoleto({ cupones: ["4832"] }, "x/1.png", 1) === "x/1.png" &&
+      rutaDeImagenDeBoleto({ cupones: ["4832"] }, "x/1.png", 2) === null
   );
 }
 

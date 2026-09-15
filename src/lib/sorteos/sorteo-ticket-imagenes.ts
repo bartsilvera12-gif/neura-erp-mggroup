@@ -328,6 +328,24 @@ export function boletosDeEntrega(
   return numeros.length > 1 ? numeros.map((numero, i) => ({ n: i + 1, numero, estado: null })) : [];
 }
 
+/**
+ * Archivo de la foto `n` de una entrega. La fila guarda solo la primera (`…/1-1.png`); las
+ * demás están al lado, `…/1-2.png`, `…/1-3.png`. null si esa foto no existe en la compra.
+ */
+export function rutaDeImagenDeBoleto(
+  payloadSnapshot: unknown,
+  storagePath: string | null | undefined,
+  n: number
+): string | null {
+  const guardada = leerImagenesDeBoleto(payloadSnapshot).find((i) => i.n === n);
+  if (guardada) return guardada.storage_path;
+  const primera = (storagePath ?? "").trim();
+  if (!primera) return null;
+  if (n === 1) return primera;
+  const boletos = boletosDeEntrega(payloadSnapshot, primera);
+  return boletos.some((b) => b.n === n) ? primera.replace(/-1\.png$/, `-${n}.png`) : null;
+}
+
 function estadoDesdeMensaje(estado: string | null, huboMensaje: boolean): EstadoImagenBoleto {
   if (!huboMensaje) return "failed";
   const e = (estado ?? "").trim().toLowerCase();
