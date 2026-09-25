@@ -229,42 +229,68 @@ function worstMissing(a: OnMissingBehavior, b: OnMissingBehavior): OnMissingBeha
   return rankMissing(a) >= rankMissing(b) ? a : b;
 }
 
-async function existsHashDuplicate(
+/**
+ * ¿Ese comprobante ya se usó antes?
+ *
+ * No cuenta como repetido cuando lo vuelve a mandar la misma persona, en el mismo chat, y ese
+ * pago todavía no generó ninguna compra: es el mismo pago que sigue sin resolverse. Antes eso
+ * se rechazaba por «duplicado» y la persona quedaba trabada —el bot le pedía el comprobante y
+ * al mandarlo se lo rechazaba— sin forma de salir (caso del 24/09/2026).
+ *
+ * Sigue bloqueando lo que importa: el mismo comprobante en otro chat, y el que ya generó una
+ * compra, que es reusarlo para llevarse boletas dos veces.
+ */
+export async function existsHashDuplicate(
   supabase: AppSupabaseClient,
   empresaId: string,
-  hash: string
+  hash: string,
+  conversationId: string
 ): Promise<boolean> {
   if (!hash.trim()) return false;
   const { data, error } = await supabase
     .from("chat_comprobante_validaciones")
-    .select("id")
+    .select("id, conversation_id, sorteo_entrada_id")
     .eq("empresa_id", empresaId)
     .eq("comprobante_hash", hash)
     .in("estado_validacion", ESTADOS_HASH_BLOQUEA_REUSO)
-    .limit(1)
-    .maybeSingle();
+    .limit(20);
   if (error) return false;
-  return Boolean(data?.id);
+  const filas = (data ?? []) as Array<{
+    id?: string;
+    conversation_id?: string | null;
+    sorteo_entrada_id?: string | null;
+  }>;
+  const cid = conversationId.trim();
+  return filas.some(
+    (f) => Boolean(f.id) && (f.sorteo_entrada_id != null || !cid || String(f.conversation_id ?? "") !== cid)
+  );
 }
 
-async function existsOcrRefDuplicate(
+/** Mismo criterio que el hash: el número de operación repetido en el propio chat, mientras no
+ * haya generado una compra, es la misma persona reenviando su pago. */
+export async function existsOcrRefDuplicate(
   supabase: AppSupabaseClient,
   empresaId: string,
   refNorm: string,
-  sameFlowSessionId: string
+  sameFlowSessionId: string,
+  conversationId: string
 ): Promise<boolean> {
   if (!refNorm) return false;
   const { data, error } = await supabase
     .from("chat_comprobante_validaciones")
-    .select("id")
+    .select("id, conversation_id, sorteo_entrada_id")
     .eq("empresa_id", empresaId)
     .eq("ocr_referencia", refNorm)
     .eq("estado_validacion", "valido")
     .neq("flow_session_id", sameFlowSessionId)
-    .limit(1)
-    .maybeSingle();
-  if (error) return false;
-  return Boolean(data?.id);
+    .limit(20);
+  if (!error) {
+    const cid = conversationId.trim();
+    return ((data ?? []) as Array<{ id?: string; conversation_id?: string | null; sorteo_entrada_id?: string | null }>).some(
+      (f) => Boolean(f.id) && (f.sorteo_entrada_id != null || !cid || String(f.conversation_id ?? "") !== cid)
+    );
+  }
+  return false;
 }
 
 /**
@@ -496,7 +522,7 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
 
   // --- Hash duplicado ---
   if (settings.deteccion_duplicados_hash && settings.bloquear_por_hash_duplicado) {
-    const dup = await existsHashDuplicate(supabase, ctx.empresaId, hash);
+    const dup = await existsHashDuplicate(supabase, ctx.empresaId, hash, ctx.conversationId);
     if (dup) {
       console.info("[sorteo-comprobante][duplicate-check]", {
         empresa_id: ctx.empresaId,
@@ -749,7 +775,13 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
   let ocrFingerprintWeakDup = false;
   if (settings.bloquear_por_ocr_duplicado) {
     if (settings.ocr_fields.referencia.use_duplicate_detection && refForDup) {
-      ocrRefStrongDup = await existsOcrRefDuplicate(supabase, ctx.empresaId, refForDup, sid);
+      ocrRefStrongDup = await existsOcrRefDuplicate(
+        supabase,
+        ctx.empresaId,
+        refForDup,
+        sid,
+        ctx.conversationId
+      );
     }
     if (
       !ocrRefStrongDup &&
