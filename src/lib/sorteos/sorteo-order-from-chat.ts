@@ -818,6 +818,86 @@ export async function mergeComprobanteFromValidationRowIntoFlowData(
   return out;
 }
 
+/** Cuánto para atrás se busca un comprobante suelto de la misma conversación. */
+const HORAS_COMPROBANTE_RECIENTE = 24;
+
+/**
+ * Busca el comprobante de la conversación cuando la sesión de flujo no lo tiene.
+ *
+ * `chat_flow_data` está guardado por sesión de flujo. Si la sesión cambia entre el momento en
+ * que la persona manda el comprobante y el momento en que confirma —pasa cuando el flujo se
+ * reinicia en el medio—, al cerrar no se encontraba nada y el bot le pedía el comprobante otra
+ * vez aunque ya lo había mandado y el bot lo había dado por bueno.
+ *
+ * Solo toma comprobantes válidos, que todavía no generaron ninguna compra y que son de las
+ * últimas horas: así no se puede cerrar una compra con el comprobante de una compra anterior.
+ */
+async function buscarComprobanteSueltoDeLaConversacion(
+  supabase: AppSupabaseClient,
+  empresaId: string,
+  conversationId: string
+): Promise<{ id: string; url: string; mediaId: string; estado: string; montoOcrGs: number | null } | null> {
+  const cid = conversationId.trim();
+  if (!cid) return null;
+  const desde = new Date(Date.now() - HORAS_COMPROBANTE_RECIENTE * 3600_000).toISOString();
+  const { data, error } = await supabase
+    .from("chat_comprobante_validaciones")
+    .select("id, comprobante_url, comprobante_media_id, estado_validacion, monto_validacion_ocr_gs, created_at")
+    .eq("empresa_id", empresaId)
+    .eq("conversation_id", cid)
+    .is("sorteo_entrada_id", null)
+    .in("estado_validacion", ["valido", "aprobado_manual"])
+    .gte("created_at", desde)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) {
+    console.warn("[sorteo-order] comprobante_suelto_no_leido", { message: error.message });
+    return null;
+  }
+  const row = (data ?? [])[0] as
+    | {
+        id?: string;
+        comprobante_url?: string | null;
+        comprobante_media_id?: string | null;
+        estado_validacion?: string | null;
+        monto_validacion_ocr_gs?: number | string | null;
+      }
+    | undefined;
+  const url = norm(row?.comprobante_url ?? "");
+  const mediaId = norm(row?.comprobante_media_id ?? "");
+  if (!row?.id || !url || !mediaId) return null;
+  const montoOcr = Number(row.monto_validacion_ocr_gs ?? NaN);
+  return {
+    id: String(row.id),
+    url,
+    mediaId,
+    estado: norm(row.estado_validacion ?? ""),
+    montoOcrGs: Number.isFinite(montoOcr) && montoOcr > 0 ? Math.round(montoOcr) : null,
+  };
+}
+
+/** Lo que cuesta esta compra: cantidad de boletos × precio del sorteo. null si falta algo. */
+async function montoEsperadoDeLaCompra(
+  supabase: AppSupabaseClient,
+  empresaId: string,
+  flowCode: string,
+  flowData: Record<string, string>
+): Promise<number | null> {
+  const cantidad = readSorteoCantidadNumericFromMap(flowData);
+  if (cantidad == null || cantidad <= 0) return null;
+  const sorteoId = await getSorteoIdForChatFlow(supabase, empresaId, flowCode);
+  if (!sorteoId) return null;
+  const { data, error } = await supabase
+    .from("sorteos")
+    .select("precio_por_boleto")
+    .eq("id", sorteoId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const precio = Number((data as { precio_por_boleto?: number | string }).precio_por_boleto ?? 0);
+  if (!Number.isFinite(precio) || precio <= 0) return null;
+  return Math.round(precio * cantidad);
+}
+
 /**
  * Cierra compra sorteo + cupones (RPC idempotente) cuando el cliente ya confirmó y existen datos + comprobante en sesión.
  */
@@ -832,13 +912,59 @@ export async function finalizeSorteoOrderFromConfirmedFlowData(
     flowData: Record<string, string>;
   }
 ): Promise<EnsureSorteoOrderFromChatResult> {
-  const mergedIn = await mergeComprobanteFromValidationRowIntoFlowData(
+  let mergedIn = await mergeComprobanteFromValidationRowIntoFlowData(
     supabase,
     input.empresaId,
     input.flowData
   );
-  const url = resolveComprobanteUrlFromFlowData(mergedIn);
-  const mediaId = norm(mergedIn[SORTEO_COMPROBANTE_MEDIA_ID_FIELD]);
+  let url = resolveComprobanteUrlFromFlowData(mergedIn);
+  let mediaId = norm(mergedIn[SORTEO_COMPROBANTE_MEDIA_ID_FIELD]);
+  if (!url || !mediaId) {
+    /** Antes de pedirle otra vez el comprobante, buscarlo en el resto de la conversación. */
+    const suelto = await buscarComprobanteSueltoDeLaConversacion(
+      supabase,
+      input.empresaId,
+      input.conversationId
+    );
+    /*
+     * El comprobante suelto se valido contra el monto de aquella compra, no de esta. Si quedo
+     * una compra a medias por 10.000 y ahora se estan comprando 3 boletos, ese comprobante no
+     * alcanza: solo se usa cuando el monto que se leyo coincide con lo que cuesta esta compra.
+     */
+    const esperado = suelto
+      ? await montoEsperadoDeLaCompra(supabase, input.empresaId, input.flowCode, mergedIn)
+      : null;
+    const montoNoCoincide =
+      Boolean(suelto?.montoOcrGs != null && esperado != null && suelto!.montoOcrGs !== esperado);
+    if (suelto && montoNoCoincide) {
+      flowTrace("finalize_sorteo_order_comprobante_suelto_descartado", {
+        conversation_id: input.conversationId,
+        flow_session_id: input.flowSessionId,
+        validacion_id: suelto.id,
+        monto_comprobante: suelto.montoOcrGs,
+        monto_esperado: esperado,
+      });
+    }
+    if (suelto && !montoNoCoincide) {
+      flowTrace("finalize_sorteo_order_comprobante_de_otra_sesion", {
+        conversation_id: input.conversationId,
+        flow_session_id: input.flowSessionId,
+        validacion_id: suelto.id,
+        estado: suelto.estado,
+        monto_comprobante: suelto.montoOcrGs,
+        monto_esperado: esperado,
+      });
+      mergedIn = {
+        ...mergedIn,
+        [SORTEO_COMPROBANTE_URL_FIELD]: suelto.url,
+        [SORTEO_COMPROBANTE_MEDIA_ID_FIELD]: suelto.mediaId,
+        [SORTEO_COMPROBANTE_VALIDACION_ID_FIELD]: suelto.id,
+        [SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD]: suelto.estado,
+      };
+      url = suelto.url;
+      mediaId = suelto.mediaId;
+    }
+  }
   if (!url || !mediaId) {
     return { ok: true, skipped: true, reason: "sin_comprobante_en_sesion" };
   }

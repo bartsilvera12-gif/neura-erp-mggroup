@@ -72,6 +72,7 @@
     "qa:filtro-fecha-chat": "tsx scripts/qa-filtro-fecha-chat.ts",
     "qa:horario-tablero": "tsx scripts/qa-horario-tablero.ts",
     "qa:comprobantes-compras": "tsx --conditions=react-server scripts/qa-comprobantes-compras.ts",
+    "qa:comprobante-de-otra-sesion": "tsx --conditions=react-server scripts/qa-comprobante-de-otra-sesion.ts",
     "qa:comprobante-rechazo": "tsx --conditions=react-server scripts/qa-comprobante-rechazo.ts"
   },
   "dependencies": {

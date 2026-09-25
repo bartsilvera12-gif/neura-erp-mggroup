@@ -3849,6 +3849,8 @@ ${texto}` : prefijo;
     });
     let sorteoSuppressPlain = false;
     let sorteoMode: SorteoTicketDeliveryMode = "text_only";
+    /** Si la boleta ya se mandó antes del texto (image_only), no se vuelve a intentar después. */
+    let boletaEntregadaAntesDelTexto = false;
 
     if (sorteoTicketPackage && isSorteoFinal) {
       sorteoMode = await getSorteoTicketDeliveryModeForSorteo({
@@ -3888,6 +3890,7 @@ ${texto}` : prefijo;
           flowData: sorteoTicketPackage.flowData,
         });
         sorteoSuppressPlain = shouldSuppressSorteoFinalTextAfterImageOnlyTicket(delivery);
+        boletaEntregadaAntesDelTexto = true;
         if (delivery && !delivery.ok && !delivery.skipped) {
           console.error("[sorteo-ticket] final_node_delivery_error", {
             conversationId: state.id,
@@ -3907,13 +3910,26 @@ ${texto}` : prefijo;
         }
       }
     } else if (sorteoTicketPackage) {
+      /*
+       * La compra se cerró pero el paso siguiente no se reconoce como el de cierre (se llama
+       * distinto a `compra_realizada` y su texto no tiene las variables de la orden). Antes eso
+       * dejaba al comprador sin su boleta: compraba, el bot le confirmaba y la foto no llegaba
+       * nunca. Editar el flujo no puede hacer que la boleta se pierda, así que igual se manda,
+       * después del mensaje del nodo. El envío es idempotente por compra: si ya salió, no
+       * vuelve a salir.
+       */
+      sorteoMode = await getSorteoTicketDeliveryModeForSorteo({
+        supabase,
+        empresaId: state.empresa_id,
+        sorteoId: sorteoTicketPackage.fin.sorteoId,
+      });
       console.info("[sorteo-ticket] final_node_check", {
         conversationId: state.id,
         nextNodeCode: nextCodeEffective,
         isSorteoFinal: false,
         hasPackage: true,
+        mode: sorteoMode,
       });
-      console.info("[sorteo-ticket] final_node_delivery_skipped", { reason: "not_final_node" });
     }
 
     const sent = await sendCurrentFlowNode({
@@ -3928,11 +3944,12 @@ ${texto}` : prefijo;
       conversationId: state.id,
       nodeCode: sent.nodeCode ?? nextCodeEffective,
     });
-    if (sorteoTicketPackage && isSorteoFinal && sorteoMode === "text_and_image") {
+    if (sorteoTicketPackage && sorteoMode !== "text_only" && !boletaEntregadaAntesDelTexto) {
       console.info("[sorteo-ticket] final_node_delivery_start", {
         conversationId: state.id,
         phase: "after_final_text",
         mode: sorteoMode,
+        nodo_de_cierre_reconocido: isSorteoFinal,
       });
       try {
         const { delivery } = await runSorteoTicketAfterFinalNodeMessage({
