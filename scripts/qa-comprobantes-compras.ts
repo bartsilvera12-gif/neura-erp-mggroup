@@ -93,6 +93,8 @@ async function armarBase(conColumnasOpcionales: boolean) {
     INSERT INTO mggroup.chat_comprobante_validaciones (id, empresa_id, conversation_id, flow_session_id, estado_validacion, ocr_monto, sorteo_entrada_id, created_at) VALUES
       ('${id(504)}', '${EMP}', '${id(202)}', '${id(304)}', 'rechazado_manual', '10.000', null, '2026-09-12T10:00:00Z'),
       ('${id(505)}', '${EMP}', '${id(202)}', '${id(305)}', 'duplicado_hash', '10.000', null, '2026-09-13T10:00:00Z'),
+      /* Caso Diego Cardozo: el bot lo dio por válido y la compra nunca se cerró. */
+      ('${id(506)}', '${EMP}', '${id(202)}', '${id(306)}', 'valido', '10.000', null, '2026-09-13T11:00:00Z'),
       ('${id(599)}', '${OTRA}', '${id(202)}', '${id(399)}', 'revision_manual', '10.000', null, '2026-09-13T10:00:00Z');
     INSERT INTO mggroup.sorteo_entradas (id, empresa_id, sorteo_id, whatsapp_numero, nombre_participante, documento, cantidad_boletos, monto_total, estado_pago, revendedor_id, created_at)
     VALUES ('${id(403)}', '${EMP}', '${SOR}', '0981111222', 'María González', '4.567.890', 2, 20000, 'confirmado', '${id(900)}', '2026-09-09T12:00:00Z');
@@ -151,15 +153,24 @@ async function main() {
     console.log("\nFiltros de estado (sin buscar a nadie)");
     const pend = await buscar(null, "pendientes");
     chequear(
-      "pendientes: el de revisión y el duplicado, no el rechazado ni los que dieron boletas",
-      pend.filas.map((f) => f.validacion_id?.slice(-3)).sort().join() === "503,505",
+      "pendientes: todo lo que no dio boletas, salvo lo rechazado",
+      pend.filas.map((f) => f.validacion_id?.slice(-3)).sort().join() === "503,505,506",
       pend.filas.map((f) => [f.validacion_id?.slice(-3), f.estado_validacion])
+    );
+    chequear(
+      "un válido que se quedó sin compra también hay que resolverlo a mano",
+      pend.filas.some((f) => f.validacion_id?.endsWith("506") && f.estado_validacion === "valido" && f.boletas.length === 0),
+      pend.filas.map((f) => [f.validacion_id?.slice(-3), f.estado_validacion, f.boletas.length])
     );
     chequear("no mezcla otra empresa", pend.filas.every((f) => !f.validacion_id?.endsWith("599")));
     const rech = await buscar(null, "rechazados");
     chequear("rechazados: solo el rechazado a mano", rech.filas.map((f) => f.validacion_id?.slice(-3)).join() === "504");
     const apr = await buscar(null, "aprobados");
-    chequear("aprobados: los dos que dieron boletas", apr.filas.map((f) => f.validacion_id?.slice(-3)).sort().join() === "501,502");
+    chequear(
+      "aprobados: solo los que dieron boletas",
+      apr.filas.map((f) => f.validacion_id?.slice(-3)).sort().join() === "501,502",
+      apr.filas.map((f) => [f.validacion_id?.slice(-3), f.estado_validacion])
+    );
     const todos = await buscar(null);
     chequear("sin buscar no mete las ventas de mostrador", todos.filas.every((f) => f.tipo === "comprobante"));
 

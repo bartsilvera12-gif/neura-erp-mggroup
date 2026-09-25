@@ -87,13 +87,17 @@ export async function buscarComprobantesYCompras(
     OR ($4::text IS NOT NULL AND ${tel(`${e}.whatsapp_numero`)} = $4)
   )`;
 
+  /**
+   * «Pendientes» es todo lo que no terminó en boletas y nadie rechazó, incluidos los que el bot
+   * dio por válidos: si el pago entró y la persona no tiene boletas, hay algo que resolver.
+   * «Aprobados» son los que sí generaron la compra.
+   */
   const filtroEstado =
     estado === "pendientes"
       ? `AND v.sorteo_entrada_id IS NULL
-         AND v.estado_validacion NOT IN ('valido', 'aprobado_manual', 'rechazado_manual')`
+         AND v.estado_validacion <> 'rechazado_manual'`
       : estado === "aprobados"
-        ? `AND (v.estado_validacion IN ('valido', 'aprobado_manual') OR v.sorteo_entrada_id IS NOT NULL)
-           AND v.estado_validacion <> 'rechazado_manual'`
+        ? `AND v.sorteo_entrada_id IS NOT NULL`
         : estado === "rechazados"
           ? `AND v.estado_validacion = 'rechazado_manual'`
           : "";

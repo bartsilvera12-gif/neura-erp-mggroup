@@ -50,7 +50,10 @@ function estadoDeFila(f: FilaComprobanteCompra): Chip {
   if (f.entrada_id && f.estado_pago === "rechazado") return { label: "Compra anulada", cls: ROJO };
   switch (f.estado_validacion) {
     case "valido":
-      return { label: "Válido", cls: VERDE };
+      /** Válido pero sin boletas: el pago entró y la persona no tiene nada. Hay que aprobarlo. */
+      return f.entrada_id
+        ? { label: "Válido", cls: VERDE }
+        : { label: "Válido · sin boletas", cls: AMBAR };
     case "aprobado_manual":
       return { label: f.entrada_id ? "Aprobado a mano" : "Aprobado · faltan datos", cls: VERDE };
     case "rechazado_manual":

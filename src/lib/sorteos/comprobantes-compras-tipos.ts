@@ -70,13 +70,15 @@ export function prepararBusqueda(q: string | null | undefined): {
   };
 }
 
-/** Un comprobante sin compra y sin decisión: es lo que hay que revisar a mano. */
+/**
+ * Un comprobante que no generó boletas y que nadie rechazó: es lo que hay que resolver a mano.
+ *
+ * Incluye los que el bot dio por **válidos** pero igual se quedaron sin compra: el pago entró,
+ * la persona no tiene nada y es justo el caso que hay que poder destrabar (Diego Cardozo,
+ * 24/09/2026). Antes se los daba por terminados y la fila no ofrecía «Aprobar».
+ */
 export function esComprobantePendiente(f: Pick<FilaComprobanteCompra, "tipo" | "entrada_id" | "estado_validacion">): boolean {
-  return (
-    f.tipo === "comprobante" &&
-    !f.entrada_id &&
-    !["valido", "aprobado_manual", "rechazado_manual"].includes(f.estado_validacion ?? "")
-  );
+  return f.tipo === "comprobante" && !f.entrada_id && f.estado_validacion !== "rechazado_manual";
 }
 
 /** Lo que se le manda a la persona al rechazar su comprobante, si no se escribe otra cosa. */
