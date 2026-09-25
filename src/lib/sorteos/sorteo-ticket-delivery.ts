@@ -382,6 +382,13 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       .eq("id", rowId);
   }
 
+  /**
+   * En qué paso está la entrega. Va al `error_message` cuando algo falla: dos entregas
+   * quedaron en error con el motivo vacío (órdenes 890 y 1295) y no había forma de saber si
+   * había fallado el dibujo de la imagen, el Storage o el envío.
+   */
+  let paso = "preparando la imagen";
+
   try {
     await ensureTicketBucketsExist(supabase);
 
@@ -507,13 +514,25 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
 
     const hojas: { genPath: string; hash: string; numero: string; n: number; png: Uint8Array }[] = [];
     for (const [i, grupo] of grupos.entries()) {
+      paso = `dibujando la imagen ${i + 1} de ${grupos.length}`;
       const { png, hash } = await renderTicketPngUnified({ ...renderInput, cupones: grupo });
       /** Sufijo por boleto: si no, cada imagen pisaria a la anterior en el Storage. */
       const base = sorteoTicketGeneratedPath(empresaId, sorteoId, entradaId, templateRevision);
       const genPath = unaFotoPorBoleto ? base.replace(/\.png$/, `-${i + 1}.png`) : base;
-      const up = await uploadGeneratedTicketPng(supabase, genPath, png);
+      paso = `guardando la imagen ${i + 1} de ${grupos.length}`;
+      let up = await uploadGeneratedTicketPng(supabase, genPath, png);
       if (up.error) {
-        throw new Error(up.error);
+        /** El Storage falla de a ratos; una segunda pasada evita perder la boleta por eso. */
+        console.warn("[sorteo-ticket] storage_reintento", {
+          deliveryId: rowId,
+          storage_path: genPath,
+          error: up.error || "sin detalle",
+        });
+        await esperar(1500);
+        up = await uploadGeneratedTicketPng(supabase, genPath, png);
+      }
+      if (up.error) {
+        throw new Error(up.error || "el storage no aceptó la imagen");
       }
       console.info("[sorteo-ticket] storage_uploaded", {
         bucket: SORTEO_TICKET_GENERATED_BUCKET,
@@ -574,6 +593,7 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       };
     }
 
+    paso = "buscando el canal de WhatsApp";
     let outbound: Awaited<ReturnType<typeof resolveOutboundTextContextFromIds>>;
     try {
       outbound = await resolveOutboundTextContextFromIds(
@@ -611,6 +631,7 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       .update({ provider: outbound.provider, channel_id: input.channelId })
       .eq("id", rowId);
 
+    paso = "mandando las fotos por WhatsApp";
     let waId: string | null = null;
     let rechazadas = 0;
     for (const hoja of hojas) {
@@ -686,10 +707,12 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       provider: outbound.provider,
     };
   } catch (e) {
-    const msg = safeErr(e);
+    /** Nunca vacío: sin el paso y el detalle, la fila en error no dice nada. */
+    const msg = `${paso}: ${safeErr(e) || "sin detalle"}`;
     console.warn("[sorteo-ticket] delivery_failed", {
       entradaId,
       deliveryId: rowId || null,
+      paso,
       reason: msg.slice(0, 200),
     });
     if (rowId) {
