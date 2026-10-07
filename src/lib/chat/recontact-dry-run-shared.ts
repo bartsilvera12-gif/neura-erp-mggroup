@@ -3,12 +3,20 @@
 /** Máximo de conversaciones evaluadas por solicitud dry-run (coste acotado). */
 export const RECONTACT_DRY_RUN_CONVERSATION_LIMIT = 200;
 
+/**
+ * Antigüedad máxima (horas) del último mensaje entrante del cliente para poder enviar
+ * TEXTO libre (ventana de servicio de WhatsApp). Pasado este tiempo, Meta exige plantilla
+ * aprobada; como el motor MVP solo envía texto, esos casos se saltean.
+ */
+export const RECONTACT_WITHIN_WINDOW_HOURS = 24;
+
 export type RecontactDryRunSkipReason =
   | "node_not_in_rule"
   | "conversation_closed"
   | "human_takeover"
   | "not_bot_flow_status"
   | "not_enough_idle_time"
+  | "outside_24h_window"
   | "purchase_exists"
   | "cooldown_active"
   | "max_attempts_reached"
@@ -22,6 +30,7 @@ export const RECONTACT_DRY_RUN_SKIP_LABELS: Record<RecontactDryRunSkipReason, st
   human_takeover: "Tomada por humano (human_taken_over)",
   not_bot_flow_status: "El flujo no está en modo bot",
   not_enough_idle_time: "Aún no cumple el tiempo de inactividad configurado",
+  outside_24h_window: "Fuera de la ventana de 24h (requeriría plantilla aprobada)",
   purchase_exists: "Ya existe orden sorteo confirmada",
   cooldown_active: "Período de espera entre intentos (cooldown)",
   max_attempts_reached: "Se alcanzó el máximo de intentos",

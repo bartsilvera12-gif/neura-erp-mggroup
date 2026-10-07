@@ -18,6 +18,32 @@ export type FlowRecontactPickerNode = {
   label: string;
 };
 
+/** Fila de historial de intentos (endpoint .../runs). */
+type RecontactRunRow = {
+  id: string;
+  conversation_id: string | null;
+  decision: string;
+  skip_reason: string | null;
+  attempt_no: number | null;
+  correlation_id: string | null;
+  payload_snapshot: unknown;
+  created_at: string;
+};
+
+function runDecisionLabel(decision: string): string {
+  if (decision === "sent") return "Enviado";
+  if (decision === "failed") return "Error";
+  return decision;
+}
+
+function runPayloadText(payload: unknown): string {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "—";
+  const o = payload as Record<string, unknown>;
+  if (typeof o.text_preview === "string" && o.text_preview) return o.text_preview;
+  if (typeof o.error === "string" && o.error) return o.error;
+  return "—";
+}
+
 function guardDefaults(): {
   skip_if_human_taken_over: boolean;
   skip_if_conversation_closed: boolean;
@@ -304,7 +330,9 @@ function draftToPayload(d: Draft): Record<string, unknown> {
 const WEEKDAY_LABELS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 const FASE1_NOTICE =
-  "Esta automatización solo guarda configuración. Todavía no envía mensajes automáticamente.";
+  "El sistema revisa las conversaciones detenidas en los nodos elegidos y, pasado el tiempo de inactividad, " +
+  "envía el mensaje de seguimiento por texto (solo dentro de la ventana de 24h de WhatsApp). " +
+  "Podés simular con «Ver candidatos» o disparar manualmente con «Enviar ahora».";
 
 export function FlowRecontactAutomationsPanel(props: {
   flowCode: string;
@@ -337,6 +365,14 @@ export function FlowRecontactAutomationsPanel(props: {
     skipped: number;
     rows: RecontactDryRunRow[];
   } | null>(null);
+
+  const [runNowLoadingId, setRunNowLoadingId] = useState<string | null>(null);
+
+  const [runsOpen, setRunsOpen] = useState(false);
+  const [runsRuleLabel, setRunsRuleLabel] = useState("");
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [runsItems, setRunsItems] = useState<RecontactRunRow[]>([]);
 
   const baseUrl = useMemo(
     () => `/api/chat/flows/${encodeURIComponent(flowCode)}/recontact-rules`,
@@ -473,6 +509,70 @@ export function FlowRecontactAutomationsPanel(props: {
     }
   }
 
+  async function runNow(rule: RecontactRuleRowOut) {
+    if (
+      !window.confirm(
+        `¿Enviar ahora el seguimiento de «${rule.nombre}»?\n\n` +
+          "Se mandan mensajes de WhatsApp REALES a los candidatos que estén dentro de la ventana de 24h " +
+          "(máximo 20 por vez)."
+      )
+    ) {
+      return;
+    }
+    setRunNowLoadingId(rule.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetchWithSupabaseSession(`${baseUrl}/${encodeURIComponent(rule.id)}/run-now`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ dry_run: false }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        locked?: boolean;
+        resultado?: { candidates: number; sent: number; failed: number; window_open: boolean } | null;
+      };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo enviar");
+      if (json.locked === false) {
+        setSuccess("Ya hay un envío en curso para esta empresa. Probá de nuevo en unos segundos.");
+      } else {
+        const r = json.resultado;
+        if (!r) {
+          setSuccess("Sin resultado (la regla no devolvió candidatos).");
+        } else if (!r.window_open) {
+          setSuccess("Fuera de la franja horaria configurada: no se envió nada.");
+        } else {
+          setSuccess(`Envío listo: ${r.sent} enviados, ${r.failed} con error, ${r.candidates} candidatos.`);
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al enviar");
+    } finally {
+      setRunNowLoadingId(null);
+    }
+  }
+
+  async function openRuns(rule: RecontactRuleRowOut) {
+    setRunsRuleLabel(rule.nombre);
+    setRunsOpen(true);
+    setRunsLoading(true);
+    setRunsError(null);
+    setRunsItems([]);
+    try {
+      const res = await fetchWithSupabaseSession(`${baseUrl}/${encodeURIComponent(rule.id)}/runs?limit=50`);
+      const json = (await res.json()) as { ok?: boolean; error?: string; items?: RecontactRunRow[] };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo cargar el historial");
+      setRunsItems(json.items ?? []);
+    } catch (e) {
+      setRunsError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setRunsLoading(false);
+    }
+  }
+
   async function removeRule(row: RecontactRuleRowOut) {
     if (!window.confirm(`¿Eliminar la automatización «${row.nombre}»?`)) return;
     setError(null);
@@ -541,12 +641,8 @@ export function FlowRecontactAutomationsPanel(props: {
           Configurá recontactos automáticos para clientes que quedan detenidos en este flujo.
         </p>
         <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50/80 px-3 py-2 text-sm text-sky-900">
-          <strong className="font-medium">FASE 1 — solo configuración</strong>
+          <strong className="font-medium">Seguimiento automático activo</strong>
           <p className="mt-1 text-sky-900/90">{FASE1_NOTICE}</p>
-          <p className="mt-2 text-sky-800/85 text-xs">
-            En fases futuras el sistema buscará conversaciones detenidas en los nodos elegidos después del tiempo de
-            inactividad.
-          </p>
         </div>
         <button
           type="button"
@@ -618,6 +714,21 @@ export function FlowRecontactAutomationsPanel(props: {
                       onClick={() => void runDryRun(row)}
                     >
                       Ver candidatos
+                    </button>
+                    <button
+                      type="button"
+                      className="text-emerald-700 hover:underline text-xs font-medium disabled:opacity-50"
+                      disabled={runNowLoadingId === row.id}
+                      onClick={() => void runNow(row)}
+                    >
+                      {runNowLoadingId === row.id ? "Enviando…" : "Enviar ahora"}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-slate-700 hover:underline text-xs font-medium"
+                      onClick={() => void openRuns(row)}
+                    >
+                      Historial
                     </button>
                     <button
                       type="button"
@@ -848,7 +959,7 @@ export function FlowRecontactAutomationsPanel(props: {
             </div>
 
             <div className="border-t border-slate-100 pt-3 space-y-2">
-              <p className="text-xs font-semibold text-slate-700">Mensaje (solo configuración; sin envío)</p>
+              <p className="text-xs font-semibold text-slate-700">Mensaje de seguimiento</p>
               <select
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
                 value={draft.message_type}
@@ -1154,6 +1265,82 @@ export function FlowRecontactAutomationsPanel(props: {
                 type="button"
                 className="px-4 py-2 text-sm rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
                 onClick={() => setDryRunOpen(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {runsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+            <div className="px-5 py-3 border-t-0 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Historial de envíos</h3>
+                <p className="text-xs text-slate-500">{runsRuleLabel}</p>
+              </div>
+              <button
+                type="button"
+                className="text-slate-400 hover:text-slate-600 text-lg leading-none"
+                onClick={() => setRunsOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-5 overflow-auto">
+              {runsLoading && <p className="text-sm text-slate-500">Cargando…</p>}
+              {runsError && <p className="text-sm text-red-600">{runsError}</p>}
+              {!runsLoading && !runsError && runsItems.length === 0 && (
+                <p className="text-sm text-slate-500">Todavía no hay envíos registrados para esta automatización.</p>
+              )}
+              {!runsLoading && !runsError && runsItems.length > 0 && (
+                <div className="overflow-auto rounded-lg border border-slate-100">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-2 py-2">Fecha</th>
+                        <th className="px-2 py-2">Resultado</th>
+                        <th className="px-2 py-2">Detalle</th>
+                        <th className="px-2 py-2">Conversación</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {runsItems.map((r) => (
+                        <tr key={r.id} className="hover:bg-slate-50/80">
+                          <td className="px-2 py-2 text-slate-600 align-top whitespace-nowrap">
+                            {formatInboundAt(r.created_at)}
+                          </td>
+                          <td className="px-2 py-2 align-top">
+                            <span
+                              className={
+                                r.decision === "sent"
+                                  ? "font-semibold text-emerald-700"
+                                  : "font-medium text-red-600"
+                              }
+                            >
+                              {runDecisionLabel(r.decision)}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 text-slate-600 align-top max-w-[22rem] truncate" title={runPayloadText(r.payload_snapshot)}>
+                            {runPayloadText(r.payload_snapshot)}
+                          </td>
+                          <td className="px-2 py-2 font-mono text-[11px] text-slate-500 align-top">
+                            {r.conversation_id ? r.conversation_id.slice(0, 8) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                className="px-4 py-2 text-sm rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+                onClick={() => setRunsOpen(false)}
               >
                 Cerrar
               </button>

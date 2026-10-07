@@ -2,6 +2,7 @@ import type { SupabaseAdmin } from "@/lib/chat/types";
 import type { PurchaseCondition } from "@/lib/chat/recontact-rules-validation";
 import {
   RECONTACT_DRY_RUN_CONVERSATION_LIMIT,
+  RECONTACT_WITHIN_WINDOW_HOURS,
   type RecontactDryRunResult,
   type RecontactDryRunRow,
   type RecontactDryRunSkipReason,
@@ -181,8 +182,17 @@ export async function runRecontactDryRun(params: {
   dataSchema: string;
   flowCode: string;
   rule: RuleRow;
+  /**
+   * Antigüedad máxima (horas) del último inbound para seguir dentro de la ventana de texto.
+   * Default: 24h (MVP solo texto). `null` desactiva el filtro (p. ej. futura fase con plantilla).
+   */
+  withinWindowHours?: number | null;
 }): Promise<RecontactDryRunResult> {
   const { supabase, empresaId, flowCode, rule, dataSchema } = params;
+  const withinWindowHours =
+    params.withinWindowHours === undefined ? RECONTACT_WITHIN_WINDOW_HOURS : params.withinWindowHours;
+  const withinWindowMs =
+    withinWindowHours && withinWindowHours > 0 ? withinWindowHours * 3_600_000 : null;
   const pool = getChatPostgresPool();
   const guard = parseGuard(rule.guard_config);
   const included = parseStringArrayLoose(rule.included_node_codes);
@@ -309,6 +319,8 @@ export async function runRecontactDryRun(params: {
         idle_minutes = Math.floor(idleMs / 60_000);
         if (idleMs < idleAfterMs) {
           skip_reason = "not_enough_idle_time";
+        } else if (withinWindowMs !== null && idleMs > withinWindowMs) {
+          skip_reason = "outside_24h_window";
         }
       }
     }

@@ -21,6 +21,8 @@
     "db:apply-sorteo-revendedores-migration": "tsx scripts/apply-sorteo-revendedores-migration.ts",
     "verify:sorteo-integridad": "tsx scripts/verify-sorteo-integridad-nombre-monto.ts",
     "verify:flow-sessions": "tsx scripts/verify-flow-session-isolation.ts",
+    "test:recontact-schedule": "tsx scripts/test-recontact-schedule.ts",
+    "verify:recontact-dry": "tsx scripts/verify-recontact-executor-dry.ts",
     "db:migrate-sifen-cert-password": "tsx scripts/migrate-sifen-certificado-password-to-encrypted.ts",
     "db:apply-sifen-timbrado-fecha": "tsx scripts/apply-sifen-timbrado-fecha-inicio-migration.ts",
     "db:apply-sifen-actividad-economica": "tsx scripts/apply-sifen-actividad-economica-migration.ts",
