@@ -4,6 +4,7 @@ import { resolveUsuarioErpFromAuthUser } from "@/lib/auth/resolve-usuario-erp";
 import { isBootstrapSuperAdminEmail } from "@/lib/auth/super-admin-bootstrap-email";
 import { NextResponse } from "next/server";
 import { resolveEffectiveModules } from "@/lib/modulos/resolve-effective-modules";
+import { leerEstadoDeAcceso } from "@/lib/empresas/acceso-bloqueado";
 
 /**
  * Slugs de módulos efectivos para el usuario autenticado (intersección empresa ∩ usuario).
@@ -52,8 +53,25 @@ export async function GET(request: Request) {
 
     const superAdmin = (usuario.rol ?? "").trim() === "super_admin";
 
+    /**
+     * Servicio cortado por falta de pago: la pantalla muestra el aviso en vez del ERP. El corte
+     * de verdad está en la API; esto es para que el cliente vea por qué, en vez de una pantalla
+     * rota o un login en loop.
+     */
+    const acceso = await leerEstadoDeAcceso(usuario.empresa_id, supabase);
+    if (acceso.bloqueada && !superAdmin) {
+      return NextResponse.json({
+        superAdmin: false,
+        bloqueada: true,
+        mensajeBloqueo: acceso.mensaje,
+        slugs: [],
+        modulos: [],
+      });
+    }
+
     return NextResponse.json({
       superAdmin,
+      bloqueada: false,
       slugs: modulos.map((m) => m.slug).filter(Boolean),
       modulos: modulos.map((m) => ({ id: m.id, nombre: m.nombre, slug: m.slug })),
     });

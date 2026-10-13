@@ -11,11 +11,15 @@ import {
   pathRequiresModuleSlug,
 } from "@/lib/modulos/route-slug-map";
 import ZentraLoader from "@/components/ZentraLoader";
+import ServicioSuspendido from "@/components/ServicioSuspendido";
 import { BootProvider, useBoot } from "@/components/BootContext";
 
 const PUBLIC_ROUTES = ["/login"];
 
 type ModuleAccess = { superAdmin: boolean; slugs: Set<string> };
+
+/** Servicio cortado por falta de pago: en vez del ERP se muestra el aviso. */
+type Bloqueo = { bloqueada: boolean; mensaje: string | null };
 
 function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -23,6 +27,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const { sidebarReady } = useBoot();
   const [loading, setLoading] = useState(true);
   const [access, setAccess] = useState<ModuleAccess | null>(null);
+  const [bloqueo, setBloqueo] = useState<Bloqueo | null>(null);
 
   const isPublic = useMemo(
     () =>
@@ -46,6 +51,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
     if (isPublic) {
       setLoading(false);
       setAccess(null);
+      setBloqueo(null);
       return;
     }
 
@@ -72,9 +78,21 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
       const bootstrapSuper = isBootstrapSuperAdminEmail(session.user.email ?? null);
 
       if (res.ok) {
-        const data = (await res.json()) as { superAdmin?: boolean; slugs?: string[] };
+        const data = (await res.json()) as {
+          superAdmin?: boolean;
+          slugs?: string[];
+          bloqueada?: boolean;
+          mensajeBloqueo?: string | null;
+        };
         superAdmin = !!data.superAdmin || bootstrapSuper;
         slugs = Array.isArray(data.slugs) ? data.slugs : [];
+        if (data.bloqueada && !superAdmin) {
+          setBloqueo({ bloqueada: true, mensaje: data.mensajeBloqueo ?? null });
+          setAccess({ superAdmin: false, slugs: new Set() });
+          setLoading(false);
+          return;
+        }
+        setBloqueo(null);
       } else {
         superAdmin = bootstrapSuper;
       }
@@ -102,7 +120,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   }, [isPublic, router]);
 
   useEffect(() => {
-    if (loading || isPublic || !access || !pathname) return;
+    if (loading || isPublic || !access || !pathname || bloqueo?.bloqueada) return;
 
     if (pathname.startsWith("/admin") && !access.superAdmin) {
       router.replace(firstAccessibleHref(access.slugs, { superAdmin: false }));
@@ -114,7 +132,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
       const dest = firstAccessibleHref(access.slugs, { superAdmin: access.superAdmin });
       if (dest !== pathname.split("?")[0]) router.replace(dest);
     }
-  }, [pathname, access, loading, isPublic, router]);
+  }, [pathname, access, loading, isPublic, router, bloqueo]);
 
   /**
    * El loader queda visible mientras se chequea sesión (loading) o mientras el
@@ -122,6 +140,11 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
    * debajo desde el primer momento para que el Sidebar pueda hacer su fetch.
    */
   const showLoader = !isPublic && (loading || !sidebarReady);
+
+  /** Reemplaza la aplicación entera: no es un cartel encima del ERP. */
+  if (!isPublic && bloqueo?.bloqueada) {
+    return <ServicioSuspendido mensaje={bloqueo.mensaje} />;
+  }
 
   return (
     <>

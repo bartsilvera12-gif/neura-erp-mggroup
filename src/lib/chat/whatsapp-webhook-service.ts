@@ -67,6 +67,7 @@ import {
 } from "@/lib/supabase/schema";
 import type { Pool } from "pg";
 import { registrarEstadoDeImagenDeBoleto } from "@/lib/sorteos/sorteo-ticket-envio-imagenes";
+import { empresaConAccesoBloqueado } from "@/lib/empresas/acceso-bloqueado";
 import {
   assertAllowedChatDataSchema,
   isLikelyUnexposedTenantChatSchema,
@@ -1571,6 +1572,19 @@ export async function processInboundWebhookValue(
             });
           }
         }
+      }
+
+      /**
+       * Servicio cortado por falta de pago: el bot queda mudo.
+       *
+       * Va después de guardar el mensaje entrante, a propósito: lo que la gente escribe se
+       * sigue registrando —no se pierde nada y al reactivar está todo en el inbox—, pero el
+       * bot no contesta, no vende y no manda boletas.
+       */
+      if (await empresaConAccesoBloqueado(empresaId, catalogSupabase)) {
+        console.info(logW, "empresa_bloqueada_bot_mudo", { conversationId, empresaId });
+        processed += 1;
+        continue;
       }
 
       let businessAutomationResult = { sentWelcome: false, sentAwayMessage: false };

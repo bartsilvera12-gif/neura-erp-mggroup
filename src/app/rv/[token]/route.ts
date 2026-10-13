@@ -4,6 +4,7 @@ import {
   REVENDEDOR_COOKIE_MAX_AGE,
   resolveRevendedorByAccessToken,
 } from "@/lib/sorteos/revendedor-session";
+import { empresaConAccesoBloqueado } from "@/lib/empresas/acceso-bloqueado";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,10 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const ctx = await resolveRevendedorByAccessToken(token);
+  /** Servicio cortado por falta de pago: el link del vendedor deja de abrir el punto de venta. */
+  if (ctx && (await empresaConAccesoBloqueado(ctx.empresaId))) {
+    return new NextResponse(null, { status: 303, headers: { Location: "/rv/suspendido" } });
+  }
 
   // Redirect RELATIVO: detrás del proxy, request.url tiene el host interno (localhost).
   // Un Location relativo lo resuelve el browser contra el origin público real.

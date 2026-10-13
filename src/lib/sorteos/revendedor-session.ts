@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
+import { empresaConAccesoBloqueado } from "@/lib/empresas/acceso-bloqueado";
 import { getSingleClientSchemaOrNull } from "@/lib/instance/single-client";
 import { looksLikeRevendedorAccessToken } from "@/lib/sorteos/revendedor-access";
 
@@ -114,11 +115,17 @@ export async function resolveRevendedorByAccessToken(
 }
 
 /** Lee la sesión del revendedor desde la cookie (revalida contra BD). */
+/**
+ * Sesión del punto de venta. Con el servicio cortado por falta de pago devuelve null: el
+ * vendedor no puede cargar ventas ni consultar su saldo.
+ */
 export async function readRevendedorSession(): Promise<RevendedorPosContext | null> {
   const jar = await cookies();
   const token = jar.get(REVENDEDOR_COOKIE)?.value;
   if (!token) return null;
-  return resolveRevendedorByAccessToken(token);
+  const ctx = await resolveRevendedorByAccessToken(token);
+  if (ctx && (await empresaConAccesoBloqueado(ctx.empresaId))) return null;
+  return ctx;
 }
 
 export type RevendedorSaldo = {

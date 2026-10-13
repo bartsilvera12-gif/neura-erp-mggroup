@@ -5,13 +5,16 @@ import type { User } from "@supabase/supabase-js";
 import { usuarioEmailLookupVariants } from "@/lib/auth/usuario-email-variants";
 import { supabaseDbSchemaOption, type AppSupabaseClient } from "@/lib/supabase/schema";
 import { createServiceRoleClient } from "@/lib/supabase/service-admin";
+import { empresaConAccesoBloqueado, rolIgnoraBloqueo } from "@/lib/empresas/acceso-bloqueado";
 
 export type ApiAuthFailureCode =
   | "missing_public_env"
   | "no_session"
   | "usuario_query_error"
   | "usuario_zero_rows"
-  | "empresa_id_null";
+  | "empresa_id_null"
+  /** Servicio cortado por falta de pago: ninguna ruta de esa empresa responde. */
+  | "empresa_bloqueada";
 
 export type ApiAuthContext = {
   user: User;
@@ -211,6 +214,14 @@ export async function resolveApiAuthContext(
   const usuarioCatalogId = typeof row.id === "string" ? row.id : null;
 
   if (empresa_id) {
+    /**
+     * Acá pasan las 90 y pico de rutas del ERP. Es el único lugar donde el corte por falta de
+     * pago se aplica de verdad: esconder botones en la pantalla no sirve, se saltea con la
+     * consola del navegador.
+     */
+    if (!rolIgnoraBloqueo(usuarioRol) && (await empresaConAccesoBloqueado(empresa_id))) {
+      return { ok: false, code: "empresa_bloqueada" };
+    }
     return {
       ok: true,
       ctx: {
