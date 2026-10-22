@@ -108,6 +108,7 @@ function contactPhoneFallback(
 function formatTime(iso: string) {
   try {
     return new Date(iso).toLocaleString("es-PY", {
+      timeZone: "America/Asuncion",
       day: "2-digit",
       month: "short",
       hour: "2-digit",
@@ -2756,21 +2757,31 @@ export function ConversacionesClient({
                             {contactPhoneFallback(c.contact.phone_number, c.contact.name)}
                           </div>
                         </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          {vista === "bot" ? (
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded">
-                              Bot
-                            </span>
-                          ) : c.human_taken_over || c.flow_status === "human" ? (
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                              Humano
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          {c.last_message_at ? (
+                            <span
+                              className="text-[10px] font-medium text-slate-400 tabular-nums whitespace-nowrap"
+                              title={`Último mensaje: ${formatTime(c.last_message_at)}`}
+                            >
+                              {formatTime(c.last_message_at)}
                             </span>
                           ) : null}
-                          {c.unread_count > 0 && (
-                            <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-[#4FAEB2] px-1.5 py-0.5 text-[11px] font-bold text-white">
-                              {c.unread_count}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {vista === "bot" ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded">
+                                Bot
+                              </span>
+                            ) : c.human_taken_over || c.flow_status === "human" ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                Humano
+                              </span>
+                            ) : null}
+                            {c.unread_count > 0 && (
+                              <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-[#4FAEB2] px-1.5 py-0.5 text-[11px] font-bold text-white">
+                                {c.unread_count}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
