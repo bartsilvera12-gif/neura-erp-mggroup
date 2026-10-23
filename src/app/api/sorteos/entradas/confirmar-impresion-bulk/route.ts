@@ -25,12 +25,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }
 
-    let body: { sorteo_id?: string; entrada_ids?: unknown; impresas_por_entrada?: unknown };
+    let body: {
+      sorteo_id?: string;
+      entrada_ids?: unknown;
+      impresas_por_entrada?: unknown;
+      desmarcar?: unknown;
+    };
     try {
       body = (await request.json()) as {
         sorteo_id?: string;
         entrada_ids?: unknown;
         impresas_por_entrada?: unknown;
+        desmarcar?: unknown;
       };
     } catch {
       return NextResponse.json(errorResponse("JSON inválido"), { status: 400 });
@@ -80,6 +86,7 @@ export async function POST(request: NextRequest) {
       sorteoId,
       entradaIds: idsPedidos.filter(Boolean),
       impresasPorEntrada: rawImpresas,
+      desmarcar: body.desmarcar === true,
     });
 
     if (!result.ok) {

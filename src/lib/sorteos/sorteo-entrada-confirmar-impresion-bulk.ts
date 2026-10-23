@@ -60,6 +60,11 @@ export async function confirmarImpresionCuponesEntradasBulk(params: {
    * Si no viene (llamadas viejas), se marca todo como antes.
    */
   impresasPorEntrada?: number[] | null;
+  /**
+   * Deshacer: deja las órdenes como no impresas. Es la salida cuando la impresora falló y la
+   * tanda ya se había registrado, para poder imprimirla de nuevo.
+   */
+  desmarcar?: boolean;
 }): Promise<ConfirmarImpresionBulkResult> {
   const { empresaId, usuarioUuid, sorteoId } = params;
 
@@ -82,9 +87,15 @@ export async function confirmarImpresionCuponesEntradasBulk(params: {
     };
   }
 
-  const impresas = alinearImpresas(params.entradaIds ?? [], entradaIds, params.impresasPorEntrada);
+  const impresas = params.desmarcar
+    ? null
+    : alinearImpresas(params.entradaIds ?? [], entradaIds, params.impresasPorEntrada);
 
   const dataSchema = await fetchDataSchemaForEmpresaId(empresaId);
+
+  if (params.desmarcar) {
+    return desmarcar(empresaId, dataSchema, sorteoId, entradaIds);
+  }
 
   if (isLikelyUnexposedTenantChatSchema(dataSchema)) {
     if (!getChatPostgresConnectionString()) {
@@ -146,6 +157,73 @@ export function alinearImpresas(
     porId.set(key, Math.max(porId.get(key) ?? 0, Math.trunc(n)));
   });
   return entradaIds.every((id) => porId.has(id)) ? porId : null;
+}
+
+/**
+ * Vuelve las órdenes a «no impresas». Solo toca la marca: no cambia cupones ni estado de pago.
+ */
+async function desmarcar(
+  empresaId: string,
+  dataSchema: string,
+  sorteoId: string,
+  entradaIds: string[]
+): Promise<ConfirmarImpresionBulkResult> {
+  const nowIso = new Date().toISOString();
+  const limpio = {
+    cupones_impresos_at: null,
+    cupones_impresos_by: null,
+    cupones_impresion_count: null,
+    updated_at: nowIso,
+  };
+
+  if (isLikelyUnexposedTenantChatSchema(dataSchema)) {
+    const pool = getChatPostgresPool();
+    if (!pool) {
+      return { ok: false, status: 503, message: "Sin pool Postgres para actualizar el esquema del tenant." };
+    }
+    const sch = assertAllowedChatDataSchema(dataSchema);
+    const tEnt = quoteSchemaTable(sch, "sorteo_entradas");
+    try {
+      const res = await pool.query(
+        `UPDATE ${tEnt} se
+            SET cupones_impresos_at = NULL,
+                cupones_impresos_by = NULL,
+                cupones_impresion_count = NULL,
+                updated_at = now()
+          WHERE se.empresa_id = $1::uuid
+            AND se.sorteo_id = $2::uuid
+            AND se.id = ANY($3::uuid[])
+          RETURNING se.id`,
+        [empresaId, sorteoId, entradaIds]
+      );
+      return {
+        ok: true,
+        entradas_marcadas: res.rowCount ?? res.rows?.length ?? 0,
+        parciales: [],
+        cupones_impresos_at: nowIso,
+      };
+    } catch (e) {
+      return { ok: false, status: 500, message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  const sb = await getChatServiceClientForEmpresa(empresaId);
+  const { data, error } = await sb
+    .from("sorteo_entradas")
+    .update(limpio)
+    .eq("empresa_id", empresaId)
+    .eq("sorteo_id", sorteoId)
+    .in("id", entradaIds)
+    .select("id");
+  if (error) {
+    return { ok: false, status: 400, message: error.message };
+  }
+  return {
+    ok: true,
+    entradas_marcadas: Array.isArray(data) ? data.length : 0,
+    parciales: [],
+    cupones_impresos_at: nowIso,
+  };
 }
 
 async function marcarPg(

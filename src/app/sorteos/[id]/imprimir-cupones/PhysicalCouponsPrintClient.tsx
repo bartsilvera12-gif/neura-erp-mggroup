@@ -351,6 +351,10 @@ export default function PhysicalCouponsPrintClient({
   const [markOkCount, setMarkOkCount] = useState<number | null>(null);
   /** Compras que la tanda imprimió a medias: quedan sin marcar para que vuelvan a salir. */
   const [markParciales, setMarkParciales] = useState<{ ordenes: number; boletas: number } | null>(null);
+  /** El marcado lo hizo la impresión, no un clic: cambia el texto que se muestra. */
+  const [markAutomatico, setMarkAutomatico] = useState(false);
+  const [desmarcarPending, setDesmarcarPending] = useState(false);
+  const [desmarcado, setDesmarcado] = useState(false);
 
   const modoEntrada = Boolean(entradaId && entradaContext);
   const modoBatch = Boolean(batchMode) && !modoEntrada;
@@ -463,6 +467,49 @@ export default function PhysicalCouponsPrintClient({
     } else {
       w.addEventListener("load", () => window.setTimeout(runPrint, 100));
     }
+
+    /*
+     * Al cerrarse el diálogo de impresión, la tanda queda marcada sola.
+     *
+     * Depender de que alguien se acuerde de tocar «Marcar como impresas» ya falló: MG imprimió
+     * unas 4.000 boletas, nadie marcó nada y hubo que reconstruir a mano hasta dónde habían
+     * llegado. Si la impresora falla, se desmarca con el botón de al lado.
+     */
+    if (modoBatch) {
+      w.addEventListener("afterprint", () => {
+        void handleMarcarLoteImpreso({ automatico: true });
+      });
+    }
+  }
+
+  /** La impresora falló: la tanda vuelve a quedar pendiente para imprimirla de nuevo. */
+  async function handleDesmarcarLote() {
+    if (uniqueEntradaIds.length === 0) return;
+    setDesmarcarPending(true);
+    setMarkErr(null);
+    try {
+      const res = await fetchWithSupabaseSession(`/api/sorteos/entradas/confirmar-impresion-bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sorteo_id: sorteoId,
+          entrada_ids: uniqueEntradaIds,
+          desmarcar: true,
+        }),
+      });
+      const raw = await res.text();
+      if (!res.ok) {
+        setMarkErr(raw || `Error ${res.status}`);
+        return;
+      }
+      setDesmarcado(true);
+      setMarkOkCount(null);
+      setMarkParciales(null);
+    } catch (e) {
+      setMarkErr(e instanceof Error ? e.message : "Error al deshacer el marcado");
+    } finally {
+      setDesmarcarPending(false);
+    }
   }
 
   async function handleConfirmarImpresion() {
@@ -492,9 +539,12 @@ export default function PhysicalCouponsPrintClient({
     }
   }
 
-  async function handleMarcarLoteImpreso() {
+  async function handleMarcarLoteImpreso(opciones?: { automatico?: boolean }) {
     if (uniqueEntradaIds.length === 0) return;
+    /** El marcado automático ya tiene su confirmación: el usuario acaba de imprimir. */
+    if (markOkCount != null || markPending) return;
     if (
+      !opciones?.automatico &&
       !window.confirm(
         `Vas a marcar ${uniqueEntradaIds.length.toLocaleString("es-PY")} ${
           uniqueEntradaIds.length === 1 ? "orden" : "órdenes"
@@ -549,6 +599,7 @@ export default function PhysicalCouponsPrintClient({
       }
       setMarkOkCount(count);
       setMarkParciales({ ordenes: parciales, boletas: boletasFaltantes });
+      setMarkAutomatico(Boolean(opciones?.automatico));
     } catch (e) {
       setMarkErr(e instanceof Error ? e.message : "Error al marcar como impresas");
     } finally {
@@ -826,7 +877,8 @@ export default function PhysicalCouponsPrintClient({
                 elegido y {markParciales.boletas === 1 ? "va" : "van"} a salir en la próxima tanda.
               </span>
             ) : null}
-            Listo: se marcaron {markOkCount.toLocaleString("es-PY")}{" "}
+            {markAutomatico ? "Impresión registrada: " : "Listo: "}
+            se marcaron {markOkCount.toLocaleString("es-PY")}{" "}
             {markOkCount === 1 ? "orden" : "órdenes"} como impresas. Con «Solo no impresas» ya no vuelven
             a salir.
           </div>
@@ -848,11 +900,11 @@ export default function PhysicalCouponsPrintClient({
             Imprimir cupones
           </button>
 
-          {mostrarMarcarLote ? (
+          {mostrarMarcarLote && markOkCount == null ? (
             <button
               type="button"
               onClick={() => void handleMarcarLoteImpreso()}
-              disabled={markPending || markOkCount != null}
+              disabled={markPending}
               title="Marca todas las órdenes mostradas como impresas para no reimprimirlas"
               className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
             >
@@ -861,6 +913,17 @@ export default function PhysicalCouponsPrintClient({
                 : `Marcar ${uniqueEntradaIds.length.toLocaleString("es-PY")} ${
                     uniqueEntradaIds.length === 1 ? "orden" : "órdenes"
                   } como impresas`}
+            </button>
+          ) : null}
+          {markOkCount != null && !desmarcado ? (
+            <button
+              type="button"
+              onClick={() => void handleDesmarcarLote()}
+              disabled={desmarcarPending}
+              title="Si la impresora falló, esto deja la tanda como no impresa para volver a imprimirla"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {desmarcarPending ? "Deshaciendo…" : "No se imprimió: deshacer"}
             </button>
           ) : null}
           <p className="text-xs text-slate-500 max-w-xl">

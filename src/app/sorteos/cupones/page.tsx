@@ -10,6 +10,8 @@ import type { SorteoEntradaEstadoPago } from "@/lib/sorteos/types";
 import SorteoCuponesEstadoPagoFilter from "@/components/sorteos/SorteoCuponesEstadoPagoFilter";
 import SorteosCuponesManualClient from "@/components/sorteos/SorteosCuponesManualClient";
 import SorteoCuponesBatchPrintClient from "@/components/sorteos/SorteoCuponesBatchPrintClient";
+import TandasImpresasPanel from "@/components/sorteos/TandasImpresasPanel";
+import { cargarResumenImpresionCuponesServer } from "@/lib/sorteos/tandas-impresas-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,6 +102,14 @@ export default async function SorteoCuponesPage({
           })
         ).total_count
       : total_count;
+
+  /**
+   * «¿Hasta dónde imprimimos?» contestado en la pantalla: tandas ya impresas y lo que falta.
+   * Si no hay base directa (otros despliegues), simplemente no se muestra el panel.
+   */
+  const resumenImpresion = selectedSorteoId
+    ? await cargarResumenImpresionCuponesServer(selectedSorteoId)
+    : null;
 
   const totalPages = Math.max(1, Math.ceil(total_count / limit));
   const qsBase = sp;
@@ -254,6 +264,8 @@ export default async function SorteoCuponesPage({
           </Link>
         ) : null}
       </div>
+
+      {resumenImpresion ? <TandasImpresasPanel resumen={resumenImpresion} /> : null}
 
       <SorteoCuponesBatchPrintClient
         rows={rows}
