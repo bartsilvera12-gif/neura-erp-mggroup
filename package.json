@@ -74,6 +74,7 @@
     "qa:filtro-fecha-chat": "tsx scripts/qa-filtro-fecha-chat.ts",
     "qa:horario-tablero": "tsx scripts/qa-horario-tablero.ts",
     "qa:comprobantes-compras": "tsx --conditions=react-server scripts/qa-comprobantes-compras.ts",
+    "qa:marcar-impresas-parciales": "tsx --conditions=react-server scripts/qa-marcar-impresas-parciales.ts",
     "qa:confirmar-venta-bot": "tsx --conditions=react-server scripts/qa-confirmar-venta-bot.ts",
     "qa:bloqueo-falta-de-pago": "tsx --conditions=react-server scripts/qa-bloqueo-falta-de-pago.ts",
     "qa:comprobante-duplicado": "tsx --conditions=react-server scripts/qa-comprobante-duplicado.ts",

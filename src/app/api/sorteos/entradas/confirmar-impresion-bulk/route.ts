@@ -25,9 +25,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }
 
-    let body: { sorteo_id?: string; entrada_ids?: unknown };
+    let body: { sorteo_id?: string; entrada_ids?: unknown; impresas_por_entrada?: unknown };
     try {
-      body = (await request.json()) as { sorteo_id?: string; entrada_ids?: unknown };
+      body = (await request.json()) as {
+        sorteo_id?: string;
+        entrada_ids?: unknown;
+        impresas_por_entrada?: unknown;
+      };
     } catch {
       return NextResponse.json(errorResponse("JSON inválido"), { status: 400 });
     }
@@ -37,10 +41,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse("sorteo_id requerido e inválido"), { status: 400 });
     }
 
+    /**
+     * Cuántas boletas de cada compra entraron en la tanda: con eso se marcan solo las compras
+     * impresas completas. La impresión filtra por número de boleta y la marca es por compra.
+     */
+    const rawImpresas = Array.isArray(body.impresas_por_entrada)
+      ? body.impresas_por_entrada.map((v) => Number(v))
+      : null;
+
     const rawIds = Array.isArray(body.entrada_ids) ? body.entrada_ids : [];
-    const entradaIds = [
-      ...new Set(rawIds.map((v) => String(v).trim()).filter(Boolean)),
-    ];
+    const idsPedidos = rawIds.map((v) => String(v).trim());
+    const entradaIds = [...new Set(idsPedidos.filter(Boolean))];
     if (entradaIds.length === 0) {
       return NextResponse.json(errorResponse("entrada_ids requerido (lista no vacía)"), { status: 400 });
     }
@@ -67,7 +78,8 @@ export async function POST(request: NextRequest) {
       empresaId,
       usuarioUuid,
       sorteoId,
-      entradaIds,
+      entradaIds: idsPedidos.filter(Boolean),
+      impresasPorEntrada: rawImpresas,
     });
 
     if (!result.ok) {
@@ -80,6 +92,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       successResponse({
         entradas_marcadas: result.entradas_marcadas,
+        parciales: result.parciales,
         cupones_impresos_at: result.cupones_impresos_at,
       })
     );

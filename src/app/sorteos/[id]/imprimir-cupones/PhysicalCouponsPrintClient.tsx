@@ -349,6 +349,8 @@ export default function PhysicalCouponsPrintClient({
   const [markPending, setMarkPending] = useState(false);
   const [markErr, setMarkErr] = useState<string | null>(null);
   const [markOkCount, setMarkOkCount] = useState<number | null>(null);
+  /** Compras que la tanda imprimió a medias: quedan sin marcar para que vuelvan a salir. */
+  const [markParciales, setMarkParciales] = useState<{ ordenes: number; boletas: number } | null>(null);
 
   const modoEntrada = Boolean(entradaId && entradaContext);
   const modoBatch = Boolean(batchMode) && !modoEntrada;
@@ -359,6 +361,20 @@ export default function PhysicalCouponsPrintClient({
   const uniqueEntradaIds = useMemo(
     () => [...new Set(rows.map((r) => r.entrada_id).filter(Boolean))],
     [rows]
+  );
+
+  /**
+   * Cuántas boletas de cada compra entraron en esta tanda. El servidor lo compara con el total
+   * de la compra y marca solo las que salieron completas: filtrando por número de boleta, una
+   * compra puede tener una adentro del rango y otra afuera, y marcarla entera dejaba esa otra
+   * boleta sin imprimir para siempre.
+   */
+  const impresasPorEntrada = useMemo(
+    () =>
+      uniqueEntradaIds.map(
+        (id) => rows.filter((r) => r.entrada_id === id).length
+      ),
+    [rows, uniqueEntradaIds]
   );
   const mostrarMarcarLote = !modoEntrada && uniqueEntradaIds.length > 0;
 
@@ -495,7 +511,11 @@ export default function PhysicalCouponsPrintClient({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sorteo_id: sorteoId, entrada_ids: uniqueEntradaIds }),
+          body: JSON.stringify({
+            sorteo_id: sorteoId,
+            entrada_ids: uniqueEntradaIds,
+            impresas_por_entrada: impresasPorEntrada,
+          }),
         }
       );
       const raw = await res.text();
@@ -504,15 +524,31 @@ export default function PhysicalCouponsPrintClient({
         return;
       }
       let count = uniqueEntradaIds.length;
+      let parciales = 0;
+      let boletasFaltantes = 0;
       try {
-        const parsed = JSON.parse(raw) as { data?: { entradas_marcadas?: number } };
+        const parsed = JSON.parse(raw) as {
+          data?: {
+            entradas_marcadas?: number;
+            parciales?: Array<{ numero_orden?: number | null; impresas?: number; total?: number }>;
+          };
+        };
         if (typeof parsed?.data?.entradas_marcadas === "number") {
           count = parsed.data.entradas_marcadas;
+        }
+        const lista = parsed?.data?.parciales;
+        if (Array.isArray(lista)) {
+          parciales = lista.length;
+          boletasFaltantes = lista.reduce(
+            (acc, p) => acc + Math.max(0, (Number(p.total) || 0) - (Number(p.impresas) || 0)),
+            0
+          );
         }
       } catch {
         /* respuesta sin JSON: usamos el estimado */
       }
       setMarkOkCount(count);
+      setMarkParciales({ ordenes: parciales, boletas: boletasFaltantes });
     } catch (e) {
       setMarkErr(e instanceof Error ? e.message : "Error al marcar como impresas");
     } finally {
@@ -780,6 +816,16 @@ export default function PhysicalCouponsPrintClient({
 
         {markOkCount != null ? (
           <div className="no-print rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+            {markParciales && markParciales.ordenes > 0 ? (
+              <span className="mb-1 block font-semibold">
+                {markParciales.ordenes.toLocaleString("es-PY")}{" "}
+                {markParciales.ordenes === 1 ? "compra salió impresa" : "compras salieron impresas"} a
+                medias y no se {markParciales.ordenes === 1 ? "marcó" : "marcaron"}:{" "}
+                {markParciales.boletas.toLocaleString("es-PY")}{" "}
+                {markParciales.boletas === 1 ? "boleta quedó" : "boletas quedaron"} fuera del rango
+                elegido y {markParciales.boletas === 1 ? "va" : "van"} a salir en la próxima tanda.
+              </span>
+            ) : null}
             Listo: se marcaron {markOkCount.toLocaleString("es-PY")}{" "}
             {markOkCount === 1 ? "orden" : "órdenes"} como impresas. Con «Solo no impresas» ya no vuelven
             a salir.
