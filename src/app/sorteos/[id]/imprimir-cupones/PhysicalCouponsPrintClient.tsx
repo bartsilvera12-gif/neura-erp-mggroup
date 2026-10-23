@@ -317,6 +317,7 @@ export default function PhysicalCouponsPrintClient({
   batchEntradaCount = 0,
   cuponDesde = null,
   cuponHasta = null,
+  soloNoImpresas = false,
 }: {
   sorteoId: string;
   sorteoNombre: string;
@@ -332,6 +333,7 @@ export default function PhysicalCouponsPrintClient({
   batchEntradaCount?: number;
   cuponDesde?: number | null;
   cuponHasta?: number | null;
+  soloNoImpresas?: boolean;
 }) {
   const router = useRouter();
 
@@ -343,10 +345,22 @@ export default function PhysicalCouponsPrintClient({
   const [confirmErr, setConfirmErr] = useState<string | null>(null);
   const [confirmOk, setConfirmOk] = useState(false);
 
+  // Marca en tanda (todas las órdenes mostradas como impresas).
+  const [markPending, setMarkPending] = useState(false);
+  const [markErr, setMarkErr] = useState<string | null>(null);
+  const [markOkCount, setMarkOkCount] = useState<number | null>(null);
+
   const modoEntrada = Boolean(entradaId && entradaContext);
   const modoBatch = Boolean(batchMode) && !modoEntrada;
   const yaImpreso = Boolean(entradaContext?.cupones_impresos_at);
   const mostrarConfirmar = modoEntrada && Boolean(entradaId) && !yaImpreso && !confirmOk;
+
+  // Órdenes únicas visibles: base para marcar la tanda como impresa.
+  const uniqueEntradaIds = useMemo(
+    () => [...new Set(rows.map((r) => r.entrada_id).filter(Boolean))],
+    [rows]
+  );
+  const mostrarMarcarLote = !modoEntrada && uniqueEntradaIds.length > 0;
 
   useEffect(() => {
     document.documentElement.classList.add("physical-coupons-print-page");
@@ -459,6 +473,50 @@ export default function PhysicalCouponsPrintClient({
       setConfirmErr(e instanceof Error ? e.message : "Error al confirmar");
     } finally {
       setConfirmPending(false);
+    }
+  }
+
+  async function handleMarcarLoteImpreso() {
+    if (uniqueEntradaIds.length === 0) return;
+    if (
+      !window.confirm(
+        `Vas a marcar ${uniqueEntradaIds.length.toLocaleString("es-PY")} ${
+          uniqueEntradaIds.length === 1 ? "orden" : "órdenes"
+        } como impresas. Así no vuelven a salir con «Solo no impresas». ¿Continuar?`
+      )
+    ) {
+      return;
+    }
+    setMarkPending(true);
+    setMarkErr(null);
+    try {
+      const res = await fetchWithSupabaseSession(
+        `/api/sorteos/entradas/confirmar-impresion-bulk`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sorteo_id: sorteoId, entrada_ids: uniqueEntradaIds }),
+        }
+      );
+      const raw = await res.text();
+      if (!res.ok) {
+        setMarkErr(raw || `Error ${res.status}`);
+        return;
+      }
+      let count = uniqueEntradaIds.length;
+      try {
+        const parsed = JSON.parse(raw) as { data?: { entradas_marcadas?: number } };
+        if (typeof parsed?.data?.entradas_marcadas === "number") {
+          count = parsed.data.entradas_marcadas;
+        }
+      } catch {
+        /* respuesta sin JSON: usamos el estimado */
+      }
+      setMarkOkCount(count);
+    } catch (e) {
+      setMarkErr(e instanceof Error ? e.message : "Error al marcar como impresas");
+    } finally {
+      setMarkPending(false);
     }
   }
 
@@ -618,7 +676,8 @@ export default function PhysicalCouponsPrintClient({
               </p>
             ) : null}
             <p className="mt-1 text-xs text-sky-900">
-              Solo se muestran los cupones de la selección. Esta vista no modifica datos ni marca como impreso.
+              Solo se muestran los cupones de la selección. Imprimir no cambia nada; si querés que no se
+              repitan, usá el botón «Marcar como impresas».
             </p>
             <Link
               href={`/sorteos/${encodeURIComponent(sorteoId)}/imprimir-cupones`}
@@ -674,6 +733,16 @@ export default function PhysicalCouponsPrintClient({
                 className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
               />
             </label>
+            <label className="flex items-center gap-2 pb-1.5 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                name="solo_no_impresas"
+                value="1"
+                defaultChecked={soloNoImpresas}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              <span className="font-medium">Solo no impresas</span>
+            </label>
             <button
               type="submit"
               className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900"
@@ -709,6 +778,20 @@ export default function PhysicalCouponsPrintClient({
           </div>
         ) : null}
 
+        {markOkCount != null ? (
+          <div className="no-print rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+            Listo: se marcaron {markOkCount.toLocaleString("es-PY")}{" "}
+            {markOkCount === 1 ? "orden" : "órdenes"} como impresas. Con «Solo no impresas» ya no vuelven
+            a salir.
+          </div>
+        ) : null}
+
+        {markErr ? (
+          <div className="no-print rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+            {markErr}
+          </div>
+        ) : null}
+
         <div className="no-print flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <button
             type="button"
@@ -718,6 +801,22 @@ export default function PhysicalCouponsPrintClient({
           >
             Imprimir cupones
           </button>
+
+          {mostrarMarcarLote ? (
+            <button
+              type="button"
+              onClick={() => void handleMarcarLoteImpreso()}
+              disabled={markPending || markOkCount != null}
+              title="Marca todas las órdenes mostradas como impresas para no reimprimirlas"
+              className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {markPending
+                ? "Marcando…"
+                : `Marcar ${uniqueEntradaIds.length.toLocaleString("es-PY")} ${
+                    uniqueEntradaIds.length === 1 ? "orden" : "órdenes"
+                  } como impresas`}
+            </button>
+          ) : null}
           <p className="text-xs text-slate-500 max-w-xl">
             Se abrirá una ventana solo con los cupones (sin menú del ERP). Si la impresora muestra URL o fecha,
             desactivá encabezados y pies de página en el diálogo de impresión.

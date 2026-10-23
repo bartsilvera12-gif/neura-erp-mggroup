@@ -77,6 +77,8 @@ export default async function ImprimirCuponesSorteoPage({
   const entradaIds = entradaIdRaw ? [] : pickIdList(sp, "entrada_ids");
   const cuponDesde = pickInt(sp, "cupon_desde");
   const cuponHasta = pickInt(sp, "cupon_hasta");
+  const soloNoImpresasRaw = pickStr(sp, "solo_no_impresas").trim();
+  const soloNoImpresas = soloNoImpresasRaw === "1" || soloNoImpresasRaw === "true";
 
   const result = await fetchPhysicalCouponsForPrintServer({
     sorteoId,
@@ -88,6 +90,7 @@ export default async function ImprimirCuponesSorteoPage({
     fechaHasta: fechaHasta || null,
     cuponDesde,
     cuponHasta,
+    soloNoImpresas,
   });
 
   const entradaContext: EntradaImpresionContext | null = result.entrada_context ?? null;
@@ -109,6 +112,7 @@ export default async function ImprimirCuponesSorteoPage({
       batchEntradaCount={entradaIds.length}
       cuponDesde={cuponDesde}
       cuponHasta={cuponHasta}
+      soloNoImpresas={soloNoImpresas}
     />
   );
 }

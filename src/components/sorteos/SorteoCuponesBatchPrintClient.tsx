@@ -50,6 +50,10 @@ export default function SorteoCuponesBatchPrintClient({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [cuponDesde, setCuponDesde] = useState("");
   const [cuponHasta, setCuponHasta] = useState("");
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
+  // Por defecto NO reimprimir lo ya impreso: es lo que evita duplicar tandas.
+  const [soloNoImpresas, setSoloNoImpresas] = useState(true);
 
   const visibleIds = useMemo(() => rows.map((r) => r.entrada_id), [rows]);
   const allVisibleSelected =
@@ -123,6 +127,9 @@ export default function SorteoCuponesBatchPrintClient({
         cupon_desde: d,
         cupon_hasta: h,
         estado: estadoParam ?? "",
+        fecha_desde: fechaDesde,
+        fecha_hasta: fechaHasta,
+        solo_no_impresas: soloNoImpresas ? "1" : "",
       })
     );
   }
@@ -143,7 +150,13 @@ export default function SorteoCuponesBatchPrintClient({
       return;
     }
     openPrintWindow(
-      printUrl(selectedSorteoId, { estado: estadoParam ?? "", q: qParam ?? "" })
+      printUrl(selectedSorteoId, {
+        estado: estadoParam ?? "",
+        q: qParam ?? "",
+        fecha_desde: fechaDesde,
+        fecha_hasta: fechaHasta,
+        solo_no_impresas: soloNoImpresas ? "1" : "",
+      })
     );
   }
 
@@ -209,9 +222,59 @@ export default function SorteoCuponesBatchPrintClient({
             Imprimir todos los filtrados ({totalCount.toLocaleString("es-PY")})
           </button>
         </div>
+
+        {/* Acotado por fecha + no reimprimir: aplica a «rango» y «todos los filtrados». */}
+        <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+              Fecha desde
+            </span>
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              className="w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/20"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+              Fecha hasta
+            </span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              className="w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/20"
+            />
+          </label>
+          <label className="flex items-center gap-2 pb-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={soloNoImpresas}
+              onChange={(e) => setSoloNoImpresas(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            <span className="font-medium">Solo no impresas (no reimprimir)</span>
+          </label>
+          {(fechaDesde || fechaHasta) ? (
+            <button
+              type="button"
+              onClick={() => {
+                setFechaDesde("");
+                setFechaHasta("");
+              }}
+              className="pb-2 text-xs font-medium text-slate-500 hover:text-[#3F8E91] hover:underline"
+            >
+              Limpiar fechas
+            </button>
+          ) : null}
+        </div>
+
         <p className="mt-2 text-xs text-slate-500">
-          La impresión por tandas abre la pantalla de impresión en una pestaña nueva. No modifica datos
-          ni marca cupones como impresos. El botón «Imprimir» de cada fila sigue funcionando igual.
+          La impresión por tandas abre la pantalla de impresión en una pestaña nueva. Con «Fecha desde/hasta»
+          imprimís solo las de ese período, y con «Solo no impresas» evitás repetir las que ya marcaste como
+          impresas. Desde la pantalla de impresión podés marcarlas como impresas. El botón «Imprimir» de cada
+          fila sigue funcionando igual.
           {!selectedSorteoId
             ? " Para rango / todos, elegí un sorteo específico en el filtro de arriba."
             : ""}

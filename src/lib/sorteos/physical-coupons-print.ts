@@ -37,6 +37,11 @@ export type PhysicalCouponPrintParams = {
   /** Rango numérico por número de cupón (solo cupones con numero_cupon numérico). Inclusive. */
   cuponDesde?: number | null;
   cuponHasta?: number | null;
+  /**
+   * Si es true, excluye las órdenes ya marcadas como impresas (cupones_impresos_at IS NOT NULL).
+   * Se ignora cuando se imprime una orden puntual (entradaId): ahí se muestra tal cual.
+   */
+  soloNoImpresas?: boolean | null;
 };
 
 /** Filtro interno normalizado que comparten las dos rutas de lectura (pg-directo / PostgREST). */
@@ -50,10 +55,13 @@ type CouponFetchFilter = {
   entradaIds: string[] | null;
   cuponDesde: number | null;
   cuponHasta: number | null;
+  soloNoImpresas: boolean;
 };
 
 export type PhysicalCouponPrintRow = {
   cupon_id: string;
+  /** Orden a la que pertenece el cupón; permite marcar la tanda como impresa. */
+  entrada_id: string;
   numero_cupon: string;
   sorteo_nombre: string;
   numero_orden: number;
@@ -155,6 +163,7 @@ function passesDateRange(ref: Date, fechaDesde: string | null | undefined, fecha
 
 function mapRow(args: {
   cupon_id: string;
+  entrada_id: string;
   numero_cupon: string;
   sorteo_nombre: string;
   numero_orden: number;
@@ -169,6 +178,7 @@ function mapRow(args: {
   const nom = args.nombre_participante?.trim() || null;
   return {
     cupon_id: args.cupon_id,
+    entrada_id: args.entrada_id,
     numero_cupon: args.numero_cupon,
     sorteo_nombre: args.sorteo_nombre,
     numero_orden: args.numero_orden,
@@ -199,7 +209,7 @@ async function fetchPhysicalCouponsPgDirect(
   dataSchema: string,
   f: CouponFetchFilter
 ): Promise<PhysicalCouponsPrintResult> {
-  const { sorteoId, estadoPago, q, fechaDesde, fechaHasta, entradaId, entradaIds, cuponDesde, cuponHasta } = f;
+  const { sorteoId, estadoPago, q, fechaDesde, fechaHasta, entradaId, entradaIds, cuponDesde, cuponHasta, soloNoImpresas } = f;
   const pool = getChatPostgresPool();
   if (!pool) {
     return {
@@ -285,11 +295,17 @@ async function fetchPhysicalCouponsPgDirect(
     i++;
   }
 
+  // Excluir órdenes ya impresas (no aplica a impresión de una orden puntual).
+  if (soloNoImpresas && !entradaId) {
+    conds.push(`se.cupones_impresos_at IS NULL`);
+  }
+
   const whereSql = conds.join(" AND ");
 
   const sql = `
     SELECT
       c.id AS cupon_id,
+      c.entrada_id,
       c.numero_cupon,
       so.nombre AS sorteo_nombre,
       se.numero_orden,
@@ -331,6 +347,7 @@ async function fetchPhysicalCouponsPgDirect(
     const data: PhysicalCouponPrintRow[] = rows.map((r) =>
       mapRow({
         cupon_id: String(r.cupon_id),
+        entrada_id: String(r.entrada_id ?? ""),
         numero_cupon: String(r.numero_cupon ?? ""),
         sorteo_nombre: String(r.sorteo_nombre ?? "—"),
         numero_orden: typeof r.numero_orden === "number" ? r.numero_orden : Number(r.numero_orden) || 0,
@@ -356,7 +373,7 @@ async function fetchPhysicalCouponsPostgrest(
   f: CouponFetchFilter,
   modo: string
 ): Promise<PhysicalCouponsPrintResult> {
-  const { sorteoId, estadoPago, q, fechaDesde, fechaHasta, entradaId, entradaIds, cuponDesde, cuponHasta } = f;
+  const { sorteoId, estadoPago, q, fechaDesde, fechaHasta, entradaId, entradaIds, cuponDesde, cuponHasta, soloNoImpresas } = f;
   const sb = await getChatServiceClientForEmpresa(empresaId);
 
   let qb = sb
@@ -376,7 +393,8 @@ async function fetchPhysicalCouponsPostgrest(
         fecha_pago,
         created_at,
         chat_conversation_id,
-        cliente_id
+        cliente_id,
+        cupones_impresos_at
       ),
       sorteos!inner ( nombre )
     `
@@ -438,6 +456,9 @@ async function fetchPhysicalCouponsPostgrest(
     if (!se || !so) continue;
     if (!entradaMatchesQuery(se, q)) continue;
 
+    // Excluir órdenes ya impresas (no aplica a impresión de una orden puntual).
+    if (soloNoImpresas && !entradaId && se.cupones_impresos_at != null) continue;
+
     // Rango por número de cupón (numérico): se filtra en cliente para PostgREST.
     if (cuponDesde != null || cuponHasta != null) {
       const numStr = String(row.numero_cupon ?? "").trim();
@@ -458,6 +479,7 @@ async function fetchPhysicalCouponsPostgrest(
     out.push(
       mapRow({
         cupon_id: String(row.id),
+        entrada_id: String(row.entrada_id ?? ""),
         numero_cupon: String(row.numero_cupon ?? ""),
         sorteo_nombre: String(so.nombre ?? "—"),
         numero_orden: numeroOrden,
@@ -713,6 +735,7 @@ export async function fetchPhysicalCouponsForPrintServer(
     entradaIds,
     cuponDesde,
     cuponHasta,
+    soloNoImpresas: Boolean(params.soloNoImpresas),
   });
   return { ...out, entrada_context };
 }
