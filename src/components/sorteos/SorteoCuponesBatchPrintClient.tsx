@@ -135,12 +135,34 @@ export default function SorteoCuponesBatchPrintClient({
     );
   }
 
+  /** Imprime solo el período elegido, sin mirar el rango de números de cupón. */
+  function handleImprimirPorFecha() {
+    if (!selectedSorteoId) {
+      window.alert("Elegí un sorteo específico en el filtro para imprimir por fecha.");
+      return;
+    }
+    if (!fechaDesde && !fechaHasta) {
+      window.alert("Elegí al menos una fecha (desde y/o hasta).");
+      return;
+    }
+    openPrintWindow(
+      printUrl(selectedSorteoId, {
+        estado: estadoParam ?? "",
+        q: qParam ?? "",
+        fecha_desde: fechaDesde,
+        fecha_hasta: fechaHasta,
+        solo_no_impresas: soloNoImpresas ? "1" : "",
+      })
+    );
+  }
+
   function handleImprimirTodosFiltrados() {
     if (!selectedSorteoId) {
       window.alert("Elegí un sorteo específico en el filtro para imprimir todos los resultados.");
       return;
     }
     if (
+      !hayFechas &&
       totalCount > CONFIRM_TODOS_THRESHOLD &&
       !window.confirm(
         `Vas a abrir la impresión de todos los cupones filtrados (${totalCount.toLocaleString(
@@ -162,6 +184,7 @@ export default function SorteoCuponesBatchPrintClient({
   }
 
   const selectedCount = selected.size;
+  const hayFechas = Boolean(fechaDesde || fechaHasta);
 
   return (
     <div className="space-y-4">
@@ -220,9 +243,17 @@ export default function SorteoCuponesBatchPrintClient({
             title={!selectedSorteoId ? "Elegí un sorteo específico" : undefined}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-[#4FAEB2]/60 hover:bg-[#4FAEB2]/5 hover:text-[#3F8E91] disabled:opacity-50 disabled:pointer-events-none"
           >
-            {estadoParam
-              ? `Imprimir todos los filtrados (${totalCount.toLocaleString("es-PY")})`
-              : `Imprimir todas las confirmadas (${totalCount.toLocaleString("es-PY")})`}
+            {/*
+              Con fechas puestas no se muestra número: el conteo se calcula en el servidor sin
+              mirar el período, así que mostrarlo prometía más hojas de las que salen.
+            */}
+            {hayFechas
+              ? estadoParam
+                ? "Imprimir todos los filtrados"
+                : "Imprimir todas las confirmadas"
+              : estadoParam
+                ? `Imprimir todos los filtrados (${totalCount.toLocaleString("es-PY")})`
+                : `Imprimir todas las confirmadas (${totalCount.toLocaleString("es-PY")})`}
           </button>
         </div>
 
@@ -250,6 +281,21 @@ export default function SorteoCuponesBatchPrintClient({
               className="w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/20"
             />
           </label>
+          <button
+            type="button"
+            onClick={handleImprimirPorFecha}
+            disabled={!selectedSorteoId || !hayFechas}
+            title={
+              !selectedSorteoId
+                ? "Elegí un sorteo específico"
+                : !hayFechas
+                  ? "Elegí al menos una fecha"
+                  : undefined
+            }
+            className="rounded-xl border border-[#4FAEB2]/50 bg-white px-4 py-2.5 text-sm font-semibold text-[#3F8E91] shadow-sm transition-colors hover:bg-[#4FAEB2]/5 disabled:opacity-50 disabled:pointer-events-none"
+          >
+            Imprimir por fecha
+          </button>
           <label className="flex items-center gap-2 pb-2 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -274,10 +320,10 @@ export default function SorteoCuponesBatchPrintClient({
         </div>
 
         <p className="mt-2 text-xs text-slate-500">
-          La impresión por tandas abre la pantalla de impresión en una pestaña nueva. Con «Fecha desde/hasta»
-          imprimís solo las de ese período, y con «Solo no impresas» evitás repetir las que ya marcaste como
-          impresas. Desde la pantalla de impresión podés marcarlas como impresas. El botón «Imprimir» de cada
-          fila sigue funcionando igual.
+          La impresión por tandas abre la pantalla de impresión en una pestaña nueva. «Imprimir por fecha» usa la
+          fecha de pago de cada compra (si no la tiene, la fecha en que se cargó), e imprime solo las de ese
+          período. Con «Solo no impresas» evitás repetir las que ya marcaste como impresas, y desde la pantalla de
+          impresión las marcás al terminar la tanda. El botón «Imprimir» de cada fila sigue funcionando igual.
           {!selectedSorteoId
             ? " Para rango / todos, elegí un sorteo específico en el filtro de arriba."
             : ""}
