@@ -899,6 +899,15 @@ async function montoEsperadoDeLaCompra(
 }
 
 /**
+ * Estados del comprobante que alcanzan para dar el pago por hecho: los mismos que dejan
+ * cerrar la compra. Un comprobante en revisión no confirma nada.
+ */
+export function comprobanteValidadoConfirmaPago(estado: string | null | undefined): boolean {
+  const e = (estado ?? "").trim();
+  return e === "valido" || e === "aprobado_manual";
+}
+
+/**
  * Cierra compra sorteo + cupones (RPC idempotente) cuando el cliente ya confirmó y existen datos + comprobante en sesión.
  */
 export async function finalizeSorteoOrderFromConfirmedFlowData(
@@ -1446,6 +1455,50 @@ export async function ensureSorteoOrderFromChat(
     idempotent: row.idempotent === true,
     event: "creacion_orden_sorteo",
   });
+
+  /*
+   * Venta del bot con el comprobante ya verificado: nace confirmada.
+   *
+   * Antes toda compra por WhatsApp quedaba en `pendiente_revision`, aunque el comprobante
+   * estuviera validado y la persona ya tuviera sus boletas. Nadie las pasaba a confirmado a
+   * mano, así que se acumularon: en MG eran 2.358 órdenes y 43 millones de guaraníes
+   * cobrados que el tablero mostraba como pendientes, y que la impresión de cupones —que
+   * imprime solo confirmadas— dejaba afuera.
+   *
+   * Se confirma solo cuando la validación del comprobante dio por bueno el pago. Si el canal
+   * no valida comprobantes, o el comprobante quedó en revisión, sigue como antes: pendiente,
+   * para que alguien lo mire.
+   */
+  const estadoComprobante = norm(flowData[SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD]);
+  if (entradaId && comprobanteValidadoConfirmaPago(estadoComprobante)) {
+    const { error: confErr } = await dbForTenantTables
+      .from("sorteo_entradas")
+      .update({
+        estado_pago: "confirmado",
+        fecha_pago: new Date().toISOString(),
+        monto_pagado: montoTotal,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", entradaId)
+      .eq("empresa_id", input.empresaId)
+      /** Nunca revivir una venta anulada ni pisar una ya confirmada. */
+      .eq("estado_pago", "pendiente_revision");
+    if (confErr) {
+      console.warn(FLOW_SORTEO_LOG, "orden_no_confirmada_automaticamente", {
+        entradaId,
+        estado_comprobante: estadoComprobante,
+        message: confErr.message,
+      });
+    } else {
+      flowTrace("sorteo_order_confirmada_por_comprobante", {
+        conversation_id: input.conversationId,
+        empresa_id: input.empresaId,
+        entrada_id: entradaId,
+        numero_orden: numeroOrden,
+        estado_comprobante: estadoComprobante,
+      });
+    }
+  }
 
   const cvId = norm(flowData[SORTEO_COMPROBANTE_VALIDACION_ID_FIELD]);
   if (cvId && entradaId) {

@@ -45,6 +45,7 @@ export default function SorteoCuponesBatchPrintClient({
   selectedSorteoId: string | null;
   estadoParam?: string;
   qParam?: string;
+  /** Órdenes que realmente va a imprimir el botón (sin filtro de estado, las confirmadas). */
   totalCount: number;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -219,7 +220,9 @@ export default function SorteoCuponesBatchPrintClient({
             title={!selectedSorteoId ? "Elegí un sorteo específico" : undefined}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-[#4FAEB2]/60 hover:bg-[#4FAEB2]/5 hover:text-[#3F8E91] disabled:opacity-50 disabled:pointer-events-none"
           >
-            Imprimir todos los filtrados ({totalCount.toLocaleString("es-PY")})
+            {estadoParam
+              ? `Imprimir todos los filtrados (${totalCount.toLocaleString("es-PY")})`
+              : `Imprimir todas las confirmadas (${totalCount.toLocaleString("es-PY")})`}
           </button>
         </div>
 

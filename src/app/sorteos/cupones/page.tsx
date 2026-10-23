@@ -82,6 +82,25 @@ export default async function SorteoCuponesPage({
     transient_error,
   } = await fetchSorteoCuponesOrdenesServer(listParams);
 
+  /**
+   * Cuántas órdenes va a imprimir de verdad el botón «Imprimir todos los filtrados».
+   *
+   * Sin filtro de estado, la impresión usa solo las confirmadas, pero el botón mostraba el
+   * total de la lista —que cuenta también pendientes y anuladas— y prometía más hojas de las
+   * que salían. Con un estado elegido, lo que se lista es lo que se imprime.
+   */
+  const totalAImprimir =
+    estadoPago == null
+      ? (
+          await fetchSorteoCuponesOrdenesServer({
+            ...listParams,
+            page: 1,
+            limit: 1,
+            estadoPago: "confirmado",
+          })
+        ).total_count
+      : total_count;
+
   const totalPages = Math.max(1, Math.ceil(total_count / limit));
   const qsBase = sp;
 
@@ -241,7 +260,7 @@ export default async function SorteoCuponesPage({
         selectedSorteoId={selectedSorteoId}
         estadoParam={estadoPago}
         qParam={q}
-        totalCount={total_count}
+        totalCount={totalAImprimir}
       />
     </div>
   );
