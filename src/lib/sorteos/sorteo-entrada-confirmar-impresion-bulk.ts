@@ -5,9 +5,24 @@ import {
 } from "@/lib/supabase/chat-data-schema";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { getChatServiceClientForEmpresa } from "@/lib/supabase/chat-service-role-empresa";
+import { serializeUnknownError } from "@/lib/errors/serialize-unknown-error";
 
 /** Tope de órdenes por una sola marca en tanda (acompaña a PHYSICAL_COUPONS_PRINT_MAX). */
 export const CONFIRMAR_IMPRESION_BULK_MAX = 8000;
+
+/**
+ * Cuántos ids entran en un solo filtro `.in(...)` de PostgREST. El filtro viaja en la URL, así
+ * que miles de UUID la hacían superar el límite del gateway (414) y la respuesta volvía sin
+ * cuerpo ni mensaje: el usuario veía «{"success":false,"error":""}». Troceando en lotes chicos,
+ * cada request queda muy por debajo de ese límite. 120 UUID ≈ 4,5 KB de URL.
+ */
+const POSTGREST_IN_CHUNK = 120;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
 
 /** Una compra que salió impresa a medias: no se marca, porque le faltan boletas. */
 export type OrdenImpresaParcial = {
@@ -203,24 +218,29 @@ async function desmarcar(
         cupones_impresos_at: nowIso,
       };
     } catch (e) {
-      return { ok: false, status: 500, message: e instanceof Error ? e.message : String(e) };
+      return { ok: false, status: 500, message: serializeUnknownError(e) };
     }
   }
 
   const sb = await getChatServiceClientForEmpresa(empresaId);
-  const { data, error } = await sb
-    .from("sorteo_entradas")
-    .update(limpio)
-    .eq("empresa_id", empresaId)
-    .eq("sorteo_id", sorteoId)
-    .in("id", entradaIds)
-    .select("id");
-  if (error) {
-    return { ok: false, status: 400, message: error.message };
+  // Troceado: la lista va en la URL del filtro y miles de ids la hacían fallar en el gateway.
+  let marcadas = 0;
+  for (const lote of chunk(entradaIds, POSTGREST_IN_CHUNK)) {
+    const { data, error } = await sb
+      .from("sorteo_entradas")
+      .update(limpio)
+      .eq("empresa_id", empresaId)
+      .eq("sorteo_id", sorteoId)
+      .in("id", lote)
+      .select("id");
+    if (error) {
+      return { ok: false, status: 400, message: serializeUnknownError(error) };
+    }
+    marcadas += Array.isArray(data) ? data.length : 0;
   }
   return {
     ok: true,
-    entradas_marcadas: Array.isArray(data) ? data.length : 0,
+    entradas_marcadas: marcadas,
     parciales: [],
     cupones_impresos_at: nowIso,
   };
@@ -303,8 +323,7 @@ async function marcarPg(
       cupones_impresos_at: new Date().toISOString(),
     };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, status: 500, message: msg };
+    return { ok: false, status: 500, message: serializeUnknownError(e) };
   }
 }
 
@@ -322,30 +341,34 @@ async function marcarPostgrest(
   let parciales: OrdenImpresaParcial[] = [];
   let aMarcar: string[] = entradaIds;
   if (impresas) {
-    const { data: cupRows, error: cupErr } = await sb
-      .from("sorteo_cupones")
-      .select("entrada_id")
-      .eq("empresa_id", empresaId)
-      .in("entrada_id", entradaIds);
-    if (cupErr) {
-      return { ok: false, status: 400, message: cupErr.message };
-    }
+    // Troceado: filtros `.in(...)` con miles de ids reventaban la URL del gateway (414).
     const totalPorEntrada = new Map<string, number>();
-    for (const r of (cupRows ?? []) as Array<{ entrada_id?: string }>) {
-      const id = String(r.entrada_id ?? "").trim();
-      if (id) totalPorEntrada.set(id, (totalPorEntrada.get(id) ?? 0) + 1);
+    const ordenPorId = new Map<string, number | null>();
+    for (const lote of chunk(entradaIds, POSTGREST_IN_CHUNK)) {
+      const { data: cupRows, error: cupErr } = await sb
+        .from("sorteo_cupones")
+        .select("entrada_id")
+        .eq("empresa_id", empresaId)
+        .in("entrada_id", lote);
+      if (cupErr) {
+        return { ok: false, status: 400, message: serializeUnknownError(cupErr) };
+      }
+      for (const r of (cupRows ?? []) as Array<{ entrada_id?: string }>) {
+        const id = String(r.entrada_id ?? "").trim();
+        if (id) totalPorEntrada.set(id, (totalPorEntrada.get(id) ?? 0) + 1);
+      }
+      const { data: ordRows, error: ordErr } = await sb
+        .from("sorteo_entradas")
+        .select("id, numero_orden")
+        .eq("empresa_id", empresaId)
+        .in("id", lote);
+      if (ordErr) {
+        return { ok: false, status: 400, message: serializeUnknownError(ordErr) };
+      }
+      for (const r of (ordRows ?? []) as Array<{ id?: string; numero_orden?: number | null }>) {
+        ordenPorId.set(String(r.id ?? ""), r.numero_orden ?? null);
+      }
     }
-    const { data: ordRows } = await sb
-      .from("sorteo_entradas")
-      .select("id, numero_orden")
-      .eq("empresa_id", empresaId)
-      .in("id", entradaIds);
-    const ordenPorId = new Map<string, number | null>(
-      ((ordRows ?? []) as Array<{ id?: string; numero_orden?: number | null }>).map((r) => [
-        String(r.id ?? ""),
-        r.numero_orden ?? null,
-      ])
-    );
     const sep = separarCompletasYParciales(
       entradaIds.map((id) => ({
         id,
@@ -369,21 +392,26 @@ async function marcarPostgrest(
     row.cupones_impresos_by = usuarioUuid;
   }
 
-  const { data, error } = await sb
-    .from("sorteo_entradas")
-    .update(row)
-    .eq("empresa_id", empresaId)
-    .eq("sorteo_id", sorteoId)
-    .in("id", aMarcar)
-    .select("id");
+  // Troceado por el mismo motivo que arriba: el UPDATE lleva la lista de ids en la URL.
+  let marcadas = 0;
+  for (const lote of chunk(aMarcar, POSTGREST_IN_CHUNK)) {
+    const { data, error } = await sb
+      .from("sorteo_entradas")
+      .update(row)
+      .eq("empresa_id", empresaId)
+      .eq("sorteo_id", sorteoId)
+      .in("id", lote)
+      .select("id");
 
-  if (error) {
-    return { ok: false, status: 400, message: error.message };
+    if (error) {
+      return { ok: false, status: 400, message: serializeUnknownError(error) };
+    }
+    marcadas += Array.isArray(data) ? data.length : 0;
   }
 
   return {
     ok: true,
-    entradas_marcadas: Array.isArray(data) ? data.length : 0,
+    entradas_marcadas: marcadas,
     parciales,
     cupones_impresos_at: nowIso,
   };

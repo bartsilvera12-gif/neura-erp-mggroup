@@ -8,6 +8,7 @@ import {
 } from "@/lib/sorteos/sorteo-entrada-confirmar-impresion-bulk";
 import { invalidateSorteosListCachesForEmpresa } from "@/lib/sorteos/server-queries";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
+import { serializeUnknownError } from "@/lib/errors/serialize-unknown-error";
 
 function isUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s.trim());
@@ -104,7 +105,6 @@ export async function POST(request: NextRequest) {
       })
     );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Error";
-    return NextResponse.json(errorResponse(msg), { status: 500 });
+    return NextResponse.json(errorResponse(serializeUnknownError(err)), { status: 500 });
   }
 }

@@ -67,6 +67,31 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+/**
+ * Mensaje legible a partir de la respuesta de una ruta propia.
+ *
+ * Las rutas devuelven `{ success:false, error }`. Volcar ese cuerpo crudo en pantalla dejaba al
+ * usuario con «{"success":false,"error":""}» cuando el `error` venía vacío (p. ej. un error del
+ * gateway sin mensaje). Acá se extrae el texto útil y, si no hay, se arma un fallback con el
+ * código HTTP para que el aviso sea accionable en vez de un JSON pelado.
+ */
+function parseApiError(raw: string, status: number, accion: string): string {
+  const texto = raw.trim();
+  if (texto) {
+    try {
+      const parsed = JSON.parse(texto) as { error?: unknown; message?: unknown };
+      const msg =
+        (typeof parsed?.error === "string" ? parsed.error.trim() : "") ||
+        (typeof parsed?.message === "string" ? parsed.message.trim() : "");
+      if (msg) return msg;
+    } catch {
+      // No era JSON: si es un texto plano (no HTML ni un envelope), sirve como mensaje.
+      if (!texto.startsWith("<") && !texto.startsWith("{")) return texto;
+    }
+  }
+  return `No se pudo ${accion} (error ${status || "de red"}). Reintentá en unos segundos; si el problema sigue, avisá a soporte.`;
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -499,7 +524,7 @@ export default function PhysicalCouponsPrintClient({
       });
       const raw = await res.text();
       if (!res.ok) {
-        setMarkErr(raw || `Error ${res.status}`);
+        setMarkErr(parseApiError(raw, res.status, "deshacer el marcado"));
         return;
       }
       setDesmarcado(true);
@@ -527,7 +552,7 @@ export default function PhysicalCouponsPrintClient({
       );
       const raw = await res.text();
       if (!res.ok) {
-        setConfirmErr(raw || `Error ${res.status}`);
+        setConfirmErr(parseApiError(raw, res.status, "confirmar la impresión"));
         return;
       }
       setConfirmOk(true);
@@ -570,7 +595,7 @@ export default function PhysicalCouponsPrintClient({
       );
       const raw = await res.text();
       if (!res.ok) {
-        setMarkErr(raw || `Error ${res.status}`);
+        setMarkErr(parseApiError(raw, res.status, "marcar como impresas"));
         return;
       }
       let count = uniqueEntradaIds.length;
