@@ -376,10 +376,7 @@ async function fetchPhysicalCouponsPostgrest(
   const { sorteoId, estadoPago, q, fechaDesde, fechaHasta, entradaId, entradaIds, cuponDesde, cuponHasta, soloNoImpresas } = f;
   const sb = await getChatServiceClientForEmpresa(empresaId);
 
-  let qb = sb
-    .from("sorteo_cupones")
-    .select(
-      `
+  const SELECT_CUPON = `
       id,
       numero_cupon,
       created_at,
@@ -397,36 +394,60 @@ async function fetchPhysicalCouponsPostgrest(
         cupones_impresos_at
       ),
       sorteos!inner ( nombre )
-    `
-    )
-    .eq("empresa_id", empresaId)
-    .eq("sorteo_id", sorteoId);
+    `;
 
-  if (entradaId) {
-    qb = qb.eq("entrada_id", entradaId);
-  } else if (entradaIds && entradaIds.length > 0) {
-    qb = qb.in("entrada_id", entradaIds);
-  } else {
-    qb = qb.eq("sorteo_entradas.estado_pago", estadoPago);
+  /**
+   * Query base con TODOS los filtros que PostgREST resuelve en el servidor (estado + "no impresas").
+   * Empujarlos acá es clave: el tope por respuesta de PostgREST (max-rows, ~1000) debe caer sobre el
+   * conjunto YA filtrado, no sobre los cupones más viejos —que podrían estar todos impresos y dejar la
+   * tanda en cero—. La fecha usa COALESCE(fecha_pago, created_at), que no se expresa en PostgREST, así
+   * que ese filtro (y el rango por número de cupón) se siguen aplicando en memoria sobre lo paginado.
+   */
+  const buildBase = () => {
+    let qb = sb
+      .from("sorteo_cupones")
+      .select(SELECT_CUPON)
+      .eq("empresa_id", empresaId)
+      .eq("sorteo_id", sorteoId);
+
+    if (entradaId) {
+      qb = qb.eq("entrada_id", entradaId);
+    } else if (entradaIds && entradaIds.length > 0) {
+      qb = qb.in("entrada_id", entradaIds);
+    } else {
+      qb = qb.eq("sorteo_entradas.estado_pago", estadoPago);
+      if (soloNoImpresas) {
+        qb = qb.is("sorteo_entradas.cupones_impresos_at", null);
+      }
+    }
+
+    return qb
+      .order("created_at", { ascending: true })
+      .order("numero_cupon", { ascending: true });
+  };
+
+  // PostgREST corta en ~1000 filas por respuesta (max-rows). Paginamos con range() para traer TODO
+  // el conjunto filtrado (hasta el tope); si lo supera, pedimos acotar.
+  const PAGE = 1000;
+  const list: Record<string, unknown>[] = [];
+  for (let from = 0; from <= PHYSICAL_COUPONS_PRINT_MAX; from += PAGE) {
+    const { data: page, error: ePage } = await buildBase().range(from, from + PAGE - 1);
+    if (ePage) {
+      console.error("[sorteos][physical-print]", "postgrest_error", {
+        empresa_id: empresaId,
+        schema: dataSchema,
+        modo,
+        archivo: SOURCE,
+        error: ePage.message,
+      });
+      return { data: [], error: ePage.message };
+    }
+    const rows = (page ?? []) as Record<string, unknown>[];
+    list.push(...rows);
+    if (rows.length < PAGE) break; // última página (vino incompleta)
+    if (list.length > PHYSICAL_COUPONS_PRINT_MAX) break; // superó el tope
   }
 
-  const { data: raw, error: e1 } = await qb
-    .order("created_at", { ascending: true })
-    .order("numero_cupon", { ascending: true })
-    .limit(PHYSICAL_COUPONS_PRINT_MAX + 1);
-
-  if (e1) {
-    console.error("[sorteos][physical-print]", "postgrest_error", {
-      empresa_id: empresaId,
-      schema: dataSchema,
-      modo,
-      archivo: SOURCE,
-      error: e1.message,
-    });
-    return { data: [], error: e1.message };
-  }
-
-  const list = (raw ?? []) as Record<string, unknown>[];
   if (list.length > PHYSICAL_COUPONS_PRINT_MAX) {
     return {
       data: [],
