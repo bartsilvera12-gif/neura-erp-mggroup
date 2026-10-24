@@ -265,7 +265,9 @@ export default async function SorteoCuponesPage({
         ) : null}
       </div>
 
-      {resumenImpresion ? <TandasImpresasPanel resumen={resumenImpresion} /> : null}
+      {resumenImpresion && selectedSorteoId ? (
+        <TandasImpresasPanel resumen={resumenImpresion} sorteoId={selectedSorteoId} />
+      ) : null}
 
       <SorteoCuponesBatchPrintClient
         rows={rows}

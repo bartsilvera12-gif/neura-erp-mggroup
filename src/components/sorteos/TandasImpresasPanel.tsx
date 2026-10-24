@@ -6,9 +6,23 @@ import type { ResumenImpresionCupones } from "@/lib/sorteos/tandas-impresas-pg";
  * Cada fila es una tanda: cuándo se imprimió, cuántas boletas salieron y entre qué números de
  * orden. Arriba, lo que falta. Antes esto solo se podía averiguar consultando la base.
  */
-export default function TandasImpresasPanel({ resumen }: { resumen: ResumenImpresionCupones }) {
+export default function TandasImpresasPanel({
+  resumen,
+  sorteoId,
+}: {
+  resumen: ResumenImpresionCupones;
+  sorteoId: string;
+}) {
   const { tandas, pendientes_boletas, pendientes_compras, impresas_boletas } = resumen;
   const fmt = (n: number) => n.toLocaleString("es-PY");
+
+  /**
+   * Imprimir lo que falta: confirmadas, sin imprimir, sin rango de números ni fechas. Es el
+   * camino en el que cada compra sale completa y la tanda queda registrada sola al imprimir.
+   */
+  const urlLoQueFalta = `/sorteos/${encodeURIComponent(
+    sorteoId
+  )}/imprimir-cupones?estado=confirmado&solo_no_impresas=1`;
 
   const cuando = (iso: string) =>
     new Date(iso).toLocaleString("es-PY", {
@@ -48,6 +62,16 @@ export default function TandasImpresasPanel({ resumen }: { resumen: ResumenImpre
           </p>
           <p className="text-[11px] text-slate-500">{fmt(pendientes_compras)} compras confirmadas</p>
         </div>
+        {pendientes_boletas > 0 ? (
+          <a
+            href={urlLoQueFalta}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-xl bg-[#4FAEB2] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91]"
+          >
+            Imprimir lo que falta ({fmt(pendientes_boletas)})
+          </a>
+        ) : null}
       </div>
 
       {tandas.length === 0 ? (
