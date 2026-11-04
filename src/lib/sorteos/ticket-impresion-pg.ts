@@ -18,6 +18,7 @@ function normalizar(row: Record<string, unknown> | undefined): ConfigTicket {
     logo_url: String(row.logo_url ?? "").trim(),
     encabezado: String(row.encabezado ?? "").trim(),
     pie: String(row.pie ?? "").trim(),
+    instagram: String(row.instagram ?? "").trim(),
     mostrar_telefono: row.mostrar_telefono !== false,
     mostrar_vendedor: row.mostrar_vendedor !== false,
     /** Entre 1 y 3: más copias de un ticket térmico es papel tirado. */
@@ -51,15 +52,16 @@ export async function guardarConfigTicket(
   const t = quoteSchemaTable(schema, "sorteo_ticket_impresion");
   const r = await pool.query(
     `INSERT INTO ${t}
-       (empresa_id, ancho_mm, negocio_nombre, logo_url, encabezado, pie,
+       (empresa_id, ancho_mm, negocio_nombre, logo_url, encabezado, pie, instagram,
         mostrar_telefono, mostrar_vendedor, copias, updated_at)
-     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, now())
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
      ON CONFLICT (empresa_id) DO UPDATE SET
        ancho_mm = EXCLUDED.ancho_mm,
        negocio_nombre = EXCLUDED.negocio_nombre,
        logo_url = EXCLUDED.logo_url,
        encabezado = EXCLUDED.encabezado,
        pie = EXCLUDED.pie,
+       instagram = EXCLUDED.instagram,
        mostrar_telefono = EXCLUDED.mostrar_telefono,
        mostrar_vendedor = EXCLUDED.mostrar_vendedor,
        copias = EXCLUDED.copias,
@@ -72,6 +74,7 @@ export async function guardarConfigTicket(
       cfg.logo_url || null,
       cfg.encabezado || null,
       cfg.pie || null,
+      cfg.instagram || null,
       cfg.mostrar_telefono,
       cfg.mostrar_vendedor,
       cfg.copias,
@@ -113,6 +116,7 @@ export async function leerDatosTicket(
             e.nombre_participante AS cliente, e.documento, e.whatsapp_numero AS telefono,
             e.cantidad_boletos AS cantidad, e.monto_total AS monto, e.pago_metodo,
             e.sorteo_id::text AS sorteo_id, s.nombre AS sorteo_nombre,
+            s.fecha_sorteo AS sorteo_fecha,
             rv.nombre AS vendedor_nombre, rv.numero_vendedor AS vendedor_numero,
             COALESCE(
               NULLIF(TRIM(to_jsonb(e) ->> 'ciudad'), ''),
@@ -162,6 +166,12 @@ export async function leerDatosTicket(
     cupones: Array.isArray(row.cupones) ? (row.cupones as unknown[]).map((x) => String(x)) : [],
     sorteo_id: String(row.sorteo_id ?? ""),
     sorteo_nombre: String(row.sorteo_nombre ?? "").trim(),
+    sorteo_fecha:
+      row.sorteo_fecha == null
+        ? null
+        : row.sorteo_fecha instanceof Date
+          ? row.sorteo_fecha.toISOString()
+          : String(row.sorteo_fecha),
     vendedor_nombre: row.vendedor_nombre == null ? null : String(row.vendedor_nombre),
     vendedor_numero: row.vendedor_numero == null ? null : Number(row.vendedor_numero),
   };

@@ -24,6 +24,7 @@ const EJEMPLO: DatosTicket = {
   cantidad: 2,
   monto: 20000,
   pago_metodo: "efectivo",
+  sorteo_fecha: "2026-12-27T23:00:00.000Z",
   cupones: ["4827", "7154"],
   sorteo_id: "preview",
   sorteo_nombre: "Nissan Frontier",
@@ -185,6 +186,15 @@ export default function ConfigTicketPage() {
                 value={cfg.pie}
                 onChange={(e) => set("pie", e.target.value)}
                 placeholder="¡Gracias por tu compra!"
+              />
+            </Campo>
+
+            <Campo label="Redes / Instagram">
+              <textarea
+                className={`${INPUT} min-h-[48px]`}
+                value={cfg.instagram}
+                onChange={(e) => set("instagram", e.target.value)}
+                placeholder="@mggroup.py"
               />
             </Campo>
 

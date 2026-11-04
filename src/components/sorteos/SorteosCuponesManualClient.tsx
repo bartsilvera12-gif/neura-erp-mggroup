@@ -35,12 +35,79 @@ export default function SorteosCuponesManualClient() {
   });
   const [submitErr, setSubmitErr] = useState<string | null>(null);
   const [submitOk, setSubmitOk] = useState<string | null>(null);
+  const [buscando, setBuscando] = useState(false);
+  const [avisoBusqueda, setAvisoBusqueda] = useState<string | null>(null);
+
+  /**
+   * Autocompleta los datos del comprador desde una compra anterior, buscándolo por cédula o por
+   * celular y en cualquier edición. Completa solo los campos vacíos: nunca pisa lo que ya se
+   * escribió. Se dispara al salir del campo cédula o teléfono, así el operador no tiene que
+   * acordarse de ningún botón. `silencioso` evita avisos cuando todavía no hay dato suficiente.
+   */
+  const buscarCliente = useCallback(
+    async (cedulaVal: string, telefonoVal: string, silencioso = true) => {
+      const ced = cedulaVal.trim();
+      const tel = telefonoVal.trim();
+      const cedOk = ced.replace(/[^0-9A-Za-z]/g, "").length >= 4;
+      const telOk = tel.replace(/\D/g, "").length >= 8;
+      setAvisoBusqueda(null);
+      if (!cedOk && !telOk) return;
+      setBuscando(true);
+      try {
+        const params = new URLSearchParams();
+        if (cedOk) params.set("documento", ced);
+        if (telOk) params.set("telefono", tel);
+        const res = await fetchWithSupabaseSession(
+          `/api/sorteos/cliente-lookup?${params.toString()}`,
+          { cache: "no-store" }
+        );
+        const json = (await res.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: {
+            encontrado?: boolean;
+            nombre?: string;
+            documento?: string;
+            telefono?: string;
+            ciudad?: string;
+          };
+          error?: string;
+        };
+        if (!res.ok || !json.success) return;
+        if (!json.data?.encontrado) {
+          if (!silencioso) setAvisoBusqueda("Sin compras anteriores con esos datos.");
+          return;
+        }
+        const full = (json.data.nombre ?? "").trim();
+        const [first, ...rest] = full.split(/\s+/).filter(Boolean);
+        const nombreVal = first ?? "";
+        const apellidoVal = rest.join(" ");
+        const doc = (json.data.documento ?? "").trim();
+        const t = (json.data.telefono ?? "").trim();
+        const c = (json.data.ciudad ?? "").trim();
+        setForm((p) => ({
+          ...p,
+          nombre: p.nombre.trim() ? p.nombre : nombreVal,
+          apellido: p.apellido.trim() ? p.apellido : apellidoVal,
+          cedula: p.cedula.trim() ? p.cedula : doc,
+          telefono: p.telefono.trim() ? p.telefono : t,
+          ciudad: p.ciudad.trim() ? p.ciudad : c,
+        }));
+        setAvisoBusqueda("Comprador encontrado. Se completaron los campos vacíos.");
+      } catch {
+        /* La búsqueda es una ayuda; si falla, el operador carga a mano. */
+      } finally {
+        setBuscando(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!open) return;
     setIdempotencyKey(crypto.randomUUID());
     setSubmitErr(null);
     setSubmitOk(null);
+    setAvisoBusqueda(null);
   }, [open]);
 
   useEffect(() => {
@@ -180,6 +247,7 @@ export default function SorteosCuponesManualClient() {
        * anterior y la venta del segundo comprador no quedaba registrada.
        */
       setIdempotencyKey(crypto.randomUUID());
+      setAvisoBusqueda(null);
       setForm((p) => ({
         ...p,
         nombre: "",
@@ -300,6 +368,7 @@ export default function SorteosCuponesManualClient() {
                   name="cedula"
                   value={form.cedula}
                   onChange={onField}
+                  onBlur={() => void buscarCliente(form.cedula, form.telefono)}
                   className="border border-slate-300 rounded px-2 py-2 text-sm font-mono"
                 />
               </label>
@@ -310,11 +379,17 @@ export default function SorteosCuponesManualClient() {
                   name="telefono"
                   value={form.telefono}
                   onChange={onField}
+                  onBlur={() => void buscarCliente(form.cedula, form.telefono)}
                   required
                   placeholder="Ej. 0981123456"
                   className="border border-slate-300 rounded px-2 py-2 text-sm font-mono"
                   autoComplete="tel"
                 />
+                {buscando ? (
+                  <span className="text-[11px] text-slate-400">Buscando comprador…</span>
+                ) : avisoBusqueda ? (
+                  <span className="text-[11px] text-emerald-700">{avisoBusqueda}</span>
+                ) : null}
               </label>
 
               {/* Va impresa en el ticket y queda en la ficha del cliente. */}

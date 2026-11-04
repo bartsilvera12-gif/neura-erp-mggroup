@@ -97,38 +97,62 @@ export default function RevendedorPosClient(props: Props) {
   const ultimasVentas = props.ultimasVentas ?? [];
 
   /**
-   * Autocompleta nombre, teléfono y ciudad desde una compra anterior con ese documento.
-   * Nunca pisa lo que el vendedor ya escribió: si corrigió un dato a mano, ese gana.
+   * Autocompleta nombre, documento, teléfono y ciudad desde una compra anterior del comprador,
+   * buscándolo por documento o por celular (lo que haya cargado el vendedor) y en CUALQUIER
+   * edición, no solo en el sorteo activo: el que compró en un sorteo anterior no tiene que
+   * volver a registrarse.
+   *
+   * Nunca pisa lo que el vendedor ya escribió: si corrigió un dato a mano, ese gana. Por eso
+   * completa solo los campos vacíos, en vez de reemplazar todo de golpe.
+   *
+   * `silencioso` evita el cartel de "escribí el dato completo" cuando la búsqueda se dispara
+   * sola al salir de un campo (onBlur): ahí no hay que retar al vendedor, solo no buscar.
    */
-  async function buscarCliente() {
+  async function buscarCliente(silencioso = false) {
     const doc = documento.trim();
+    const tel = telefono.trim();
+    const docOk = doc.replace(/[^0-9A-Za-z]/g, "").length >= 4;
+    const telOk = tel.replace(/\D/g, "").length >= 8;
     setAvisoBusqueda(null);
-    if (doc.replace(/[^0-9A-Za-z]/g, "").length < 4) {
-      setAvisoBusqueda("Escribí el documento completo para buscar.");
+    if (!docOk && !telOk) {
+      if (!silencioso) {
+        setAvisoBusqueda("Escribí el documento o el celular completo para buscar.");
+      }
       return;
     }
     setBuscando(true);
     try {
-      const res = await fetch(
-        `/api/sorteos/revendedor-cliente?documento=${encodeURIComponent(doc)}`
-      );
+      const params = new URLSearchParams();
+      if (docOk) params.set("documento", doc);
+      if (telOk) params.set("telefono", tel);
+      const res = await fetch(`/api/sorteos/revendedor-cliente?${params.toString()}`);
       const json = (await res.json().catch(() => ({}))) as {
         success?: boolean;
-        data?: { encontrado?: boolean; nombre?: string; telefono?: string; ciudad?: string };
+        data?: {
+          encontrado?: boolean;
+          nombre?: string;
+          documento?: string;
+          telefono?: string;
+          ciudad?: string;
+        };
         error?: string;
       };
       if (!res.ok || !json.success) {
         throw new Error(json.error || "No se pudo buscar.");
       }
       if (!json.data?.encontrado) {
-        setAvisoBusqueda("Sin compras anteriores con ese documento. Cargá los datos a mano.");
+        if (!silencioso) {
+          setAvisoBusqueda("Sin compras anteriores con esos datos. Cargá los datos a mano.");
+        }
         return;
       }
       const habiaAlgoEscrito = Boolean(nombre.trim() || telefono.trim() || ciudad.trim());
       const n = (json.data.nombre ?? "").trim();
+      const d = (json.data.documento ?? "").trim();
       const t = (json.data.telefono ?? "").trim();
       const c = (json.data.ciudad ?? "").trim();
       if (n && !nombre.trim()) setNombre(n);
+      if (d && !documento.trim()) setDocumento(d);
       if (t && !telefono.trim()) setTelefono(t);
       if (c && !ciudad.trim()) setCiudad(c);
       setAvisoBusqueda(
@@ -421,6 +445,8 @@ export default function RevendedorPosClient(props: Props) {
                       void buscarCliente();
                     }
                   }}
+                  /** Y también al salir del campo: el vendedor no tiene que acordarse de la lupa. */
+                  onBlur={() => void buscarCliente(true)}
                   placeholder="Opcional"
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
                 />
@@ -428,8 +454,8 @@ export default function RevendedorPosClient(props: Props) {
                   type="button"
                   onClick={() => void buscarCliente()}
                   disabled={buscando}
-                  title="Buscar comprador por documento"
-                  aria-label="Buscar comprador por documento"
+                  title="Buscar comprador por documento o celular"
+                  aria-label="Buscar comprador por documento o celular"
                   className="shrink-0 rounded-xl bg-[#1e2a5a] px-4 text-white disabled:opacity-50"
                 >
                   {buscando ? "…" : "🔍"}
@@ -451,6 +477,14 @@ export default function RevendedorPosClient(props: Props) {
                 inputMode="tel"
                 value={telefono}
                 onChange={(e) => setTelefono(e.target.value)}
+                /** Al salir del campo también busca al comprador por su celular. */
+                onBlur={() => void buscarCliente(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void buscarCliente();
+                  }
+                }}
                 placeholder="Ej: 0981..."
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#4FAEB2]"
               />

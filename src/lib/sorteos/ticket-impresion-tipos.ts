@@ -11,6 +11,11 @@ export type ConfigTicket = {
   logo_url: string;
   encabezado: string;
   pie: string;
+  /**
+   * Redes del negocio (Instagram y demás) a imprimir al pie de la boleta. Texto libre, una red
+   * por línea o separadas por coma: lo que el cliente quiera que lea el comprador.
+   */
+  instagram: string;
   mostrar_telefono: boolean;
   mostrar_vendedor: boolean;
   copias: number;
@@ -22,6 +27,7 @@ export const CONFIG_TICKET_DEFECTO: ConfigTicket = {
   logo_url: "",
   encabezado: "",
   pie: "¡Gracias por tu compra!",
+  instagram: "",
   mostrar_telefono: true,
   mostrar_vendedor: true,
   copias: 1,
@@ -38,6 +44,12 @@ export type DatosTicket = {
   cantidad: number;
   monto: number;
   pago_metodo: string | null;
+  /**
+   * Fecha del sorteo (el día del juego), en ISO. Es distinta de `fecha`, que es cuándo se
+   * cargó la venta. Se imprime para que el comprador sepa cuándo se juega. Opcional: una
+   * edición sin fecha cargada, o una boleta vieja, sale sin ella en vez de fallar.
+   */
+  sorteo_fecha?: string | null;
   cupones: string[];
   /** Para poder caer al logo del sorteo cuando no hay uno configurado para la impresora. */
   sorteo_id: string;

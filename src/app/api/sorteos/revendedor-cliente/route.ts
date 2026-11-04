@@ -12,13 +12,25 @@ function soloAlfanumerico(v: string): string {
   return v.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
 }
 
+/** Últimos 8 dígitos del teléfono: así matchea aunque varíe el prefijo de país (0981 vs +595 981). */
+function ultimos8(telefono: string): string {
+  const d = telefono.replace(/\D/g, "");
+  return d.length > 8 ? d.slice(-8) : d;
+}
+
 /**
- * GET /api/sorteos/revendedor-cliente?documento=1234567
+ * GET /api/sorteos/revendedor-cliente?documento=1234567&telefono=0981...
  *
- * Autocompleta al comprador en el POS del revendedor a partir de sus compras anteriores en
- * este sorteo. Autenticado por la cookie de sesión del revendedor, igual que la venta, y
- * acotado a la empresa y al sorteo de esa sesión: un revendedor no puede usar esto para
- * listar clientes de otro sorteo ni de otra empresa.
+ * Autocompleta al comprador en el POS del revendedor a partir de sus compras anteriores. Se
+ * puede buscar por documento, por teléfono (celular) o por ambos: en la calle muchos
+ * compradores dan solo el celular, así que no alcanzaba con el documento.
+ *
+ * La búsqueda es ENTRE EDICIONES: toma la última compra de esa persona en cualquier sorteo de
+ * la empresa, no solo en el sorteo activo. El cliente que compró en una edición anterior no
+ * tiene que volver a cargar sus datos en la edición nueva. Sigue acotada a la empresa de la
+ * sesión: un revendedor no puede listar clientes de otra empresa.
+ *
+ * Autenticado por la cookie de sesión del revendedor, igual que la venta.
  *
  * Devuelve 200 con `encontrado: false` cuando no hay compra previa; no es un error.
  */
@@ -38,9 +50,16 @@ export async function GET(request: NextRequest) {
     }
 
     const documentoRaw = request.nextUrl.searchParams.get("documento") ?? "";
+    const telefonoRaw = request.nextUrl.searchParams.get("telefono") ?? "";
     const documento = soloAlfanumerico(documentoRaw);
-    /** Menos de 4 caracteres devolvería medio padrón mientras la persona todavía tipea. */
-    if (documento.length < 4) {
+    const telefono8 = ultimos8(telefonoRaw);
+    /**
+     * Umbrales para no devolver medio padrón mientras la persona todavía tipea: el documento
+     * necesita al menos 4 caracteres y el teléfono, 8 dígitos (el número local completo).
+     */
+    const buscaDoc = documento.length >= 4;
+    const buscaTel = telefono8.length >= 8;
+    if (!buscaDoc && !buscaTel) {
       return NextResponse.json(successResponse({ encontrado: false }));
     }
 
@@ -66,10 +85,12 @@ export async function GET(request: NextRequest) {
      */
     const r = await pool.query<{
       nombre_participante: string | null;
+      documento: string | null;
       whatsapp_numero: string | null;
       ciudad: string | null;
     }>(
       `SELECT e.nombre_participante,
+              e.documento,
               e.whatsapp_numero,
               COALESCE(
                 NULLIF(TRIM(to_jsonb(e) ->> 'ciudad'), ''),
@@ -86,11 +107,15 @@ export async function GET(request: NextRequest) {
          FROM ${tabla} e
          LEFT JOIN ${tClientes} cl ON cl.id = e.cliente_id AND cl.empresa_id = e.empresa_id
         WHERE e.empresa_id = $1::uuid
-          AND e.sorteo_id = $2::uuid
-          AND upper(regexp_replace(coalesce(e.documento, ''), '[^0-9A-Za-z]', '', 'g')) = $3
+          AND NULLIF(TRIM(COALESCE(e.nombre_participante, '')), '') IS NOT NULL
+          AND (
+            ($2 <> '' AND upper(regexp_replace(coalesce(e.documento, ''), '[^0-9A-Za-z]', '', 'g')) = $2)
+            OR
+            ($3 <> '' AND right(regexp_replace(coalesce(e.whatsapp_numero, ''), '\\D', '', 'g'), 8) = $3)
+          )
         ORDER BY e.created_at DESC
         LIMIT 1`,
-      [ctx.empresaId, ctx.sorteoId, documento]
+      [ctx.empresaId, buscaDoc ? documento : "", buscaTel ? telefono8 : ""]
     );
 
     const row = r.rows[0];
@@ -102,6 +127,7 @@ export async function GET(request: NextRequest) {
       successResponse({
         encontrado: true,
         nombre: (row.nombre_participante ?? "").trim(),
+        documento: (row.documento ?? "").trim(),
         telefono: (row.whatsapp_numero ?? "").trim(),
         ciudad: (row.ciudad ?? "").trim(),
       })

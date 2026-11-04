@@ -65,6 +65,7 @@ export async function PUT(request: NextRequest) {
       /** Se limitan a lo que entra en un rollo sin volverse un panfleto. */
       encabezado: texto("encabezado", 200),
       pie: texto("pie", 200),
+      instagram: texto("instagram", 200),
       mostrar_telefono: body.mostrar_telefono !== false,
       mostrar_vendedor: body.mostrar_vendedor !== false,
       copias,
