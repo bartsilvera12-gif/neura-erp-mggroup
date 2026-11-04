@@ -21,9 +21,6 @@ const WA = 1080;
 const HA = 1350;
 const PAD = 76;
 
-const PYG = new Intl.NumberFormat("es-PY");
-const gs = (n: number) => PYG.format(Math.round(n || 0)) + " Gs.";
-
 function dataUrlFromBuffer(buf: Buffer, mime: string): string {
   return `data:${mime};base64,${buf.toString("base64")}`;
 }
@@ -158,9 +155,10 @@ export function buildSorteoTicketMinimalSvg(input: SorteoTicketRenderInput): str
     y += 12;
   }
 
-  if (typeof input.montoTotal === "number" && input.montoTotal > 0) {
-    linea(gs(input.montoTotal), { fs: 32, weight: 600, centrado: false, maxLines: 1 });
-  }
+  /*
+   * No se repite el importe: el precio ya va en la EDICIÓN ("A: 10.000 GS."), así que el
+   * renglón suelto de abajo era redundante y el cliente pidió sacarlo.
+   */
 
   /** Fecha del sorteo, como en el modelo del cliente: "Se sortea el: 27 de diciembre". */
   const fechaTxt = fechaSorteoTexto(input.sorteoFecha);
@@ -170,14 +168,14 @@ export function buildSorteoTicketMinimalSvg(input: SorteoTicketRenderInput): str
 
   // ---------- Pie ----------
   /**
-   * Redes del negocio al pie, como en el modelo: "Seguinos en Instagram" y debajo los usuarios.
-   * Cuando hay redes cargadas reemplazan al "¡Gracias por tu compra!" (así lo mostró el cliente).
+   * Redes del negocio al pie, bien grandes para que se lean: "Seguinos en Instagram" y debajo
+   * los usuarios. Cuando hay redes cargadas reemplazan al "¡Gracias por tu compra!".
    */
   const ig = (input.instagram ?? "").trim();
   if (ig) {
-    y += 24;
-    linea("Seguinos en Instagram", { fs: 30, weight: 600, centrado: true, maxLines: 1 });
-    linea(ig, { fs: 30, weight: 700, centrado: true, maxLines: 2 });
+    y += 40;
+    linea("Seguinos en Instagram", { fs: 42, weight: 700, centrado: true, maxLines: 1 });
+    linea(ig, { fs: 46, weight: 800, centrado: true, maxLines: 2 });
   } else {
     parts.push(
       svgTextAsPath({

@@ -46,7 +46,6 @@ export default function TicketTermico({
 
   const numeros = boleto ? [boleto.numero] : datos.cupones;
   const numeroPrincipal = numeros[0] ?? "";
-  const montoBoleto = boleto ? boleto.monto : datos.monto;
   /** Precio de un boleto: es lo que dice la edición, no lo que pagó por toda la compra. */
   const precioUnitario =
     datos.cantidad > 0 ? Math.round(datos.monto / datos.cantidad) : datos.monto;
@@ -139,25 +138,22 @@ export default function TicketTermico({
       {angosto && qrImg && <div className="mt-1 flex justify-center">{qrImg}</div>}
 
       {/*
-        Solo el importe, como en el modelo que paso el cliente. Antes este renglon abria con la
-        fecha y el numero de orden; los dos salieron. El boleto se compra y se imprime en el
-        momento, asi que la fecha no le dice nada al comprador, y el numero de orden es un dato
-        de control interno que el comprador no usa.
+        No se repite el importe del boleto: el precio ya va arriba, en la EDICIÓN ("A: 10.000
+        GS."), así que volver a ponerlo abajo era redundante y el cliente pidió sacarlo. En una
+        compra de varios boletos sí se muestra el total pagado, que no es un dato repetido.
 
         La venta se sigue pudiendo rastrear por el numero de boleto (`NRO`), que va arriba en
         grande y es unico.
       */}
       <div className="leading-tight">
         {boleto && boleto.de > 1 ? (
-          <div>{`Boleto ${boleto.n}/${boleto.de}`}</div>
+          <>
+            <div>{`Boleto ${boleto.n}/${boleto.de}`}</div>
+            <div>
+              compra de {boleto.de} boletos {gs(datos.monto)}
+            </div>
+          </>
         ) : null}
-        {boleto && boleto.de > 1 ? (
-          <div>
-            {gs(montoBoleto)} · compra de {boleto.de} boletos {gs(datos.monto)}
-          </div>
-        ) : (
-          <div>{gs(montoBoleto)}</div>
-        )}
         {cfg.mostrar_vendedor && datos.vendedor_numero != null && (
           <div>
             Vendedor N.º {datos.vendedor_numero}
@@ -175,9 +171,9 @@ export default function TicketTermico({
       )}
 
       {cfg.instagram && (
-        <div className="mt-1 text-center leading-tight">
+        <div className="mt-2 text-center font-bold leading-tight" style={{ fontSize: "1.35em" }}>
           <div>Seguinos en Instagram</div>
-          <div className="whitespace-pre-line font-bold">{cfg.instagram}</div>
+          <div className="whitespace-pre-line">{cfg.instagram}</div>
         </div>
       )}
 
