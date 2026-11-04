@@ -11,6 +11,34 @@ type SorteoListItem = {
   ticket_delivery_mode?: string;
 };
 
+/** Estilo común de los campos: cómodo, redondeado y con foco teal, igual que el resto de la app. */
+const FIELD_INPUT =
+  "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 disabled:bg-slate-50 disabled:text-slate-500";
+
+/** Campo con etiqueta arriba. La etiqueta envuelve el control para que al tocarla se enfoque. */
+function Field({
+  label,
+  required,
+  hint,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="block text-xs font-medium text-slate-600">
+        {label}
+        {required ? <span className="text-rose-500"> *</span> : null}
+      </span>
+      {children}
+      {hint}
+    </label>
+  );
+}
+
 export default function SorteosCuponesManualClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -278,205 +306,239 @@ export default function SorteosCuponesManualClient() {
       </button>
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
           <div
             role="dialog"
             aria-modal="true"
-            className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-slate-200"
+            aria-label="Venta presencial"
+            className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-              <h2 className="text-lg font-semibold text-slate-800">Venta presencial (efectivo)</h2>
+            {/* Header fijo */}
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Venta presencial</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Efectivo · se confirma el pago al guardar. No envía WhatsApp.
+                </p>
+              </div>
               <button
                 type="button"
-                className="text-slate-500 hover:text-slate-800 text-xl leading-none px-2"
+                className="-m-1.5 shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                 onClick={() => setOpen(false)}
                 aria-label="Cerrar"
               >
-                ×
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
               </button>
             </div>
 
-            <form onSubmit={onSubmit} className="p-5 space-y-3 text-sm">
-              <p className="text-slate-600 text-xs">
-                Registra comprador y monto; se confirma el pago al guardar. No se envía WhatsApp ni se crea
-                conversación.
-              </p>
-
-              {loadErr ? (
-                <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 text-xs">
-                  {loadErr}
-                </div>
-              ) : null}
-              {submitErr ? (
-                <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-800 text-xs">
-                  {submitErr}
-                </div>
-              ) : null}
-              {submitOk ? (
-                <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900 text-xs">
-                  {submitOk}
-                </div>
-              ) : null}
-
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
-                Sorteo *
-                <select
-                  name="sorteo_id"
-                  value={form.sorteo_id}
-                  onChange={onField}
-                  required
-                  className="border border-slate-300 rounded px-2 py-2 text-sm text-slate-900"
-                >
-                  <option value="">— Elegir —</option>
-                  {sorteos.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.nombre}
-                      {(s.estado ?? "") !== "activo" ? ` (${s.estado})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
-                  Nombre *
-                  <input
-                    name="nombre"
-                    value={form.nombre}
-                    onChange={onField}
-                    required
-                    className="border border-slate-300 rounded px-2 py-2 text-sm"
-                    autoComplete="given-name"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
-                  Apellido *
-                  <input
-                    name="apellido"
-                    value={form.apellido}
-                    onChange={onField}
-                    required
-                    className="border border-slate-300 rounded px-2 py-2 text-sm"
-                    autoComplete="family-name"
-                  />
-                </label>
-              </div>
-
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
-                Cédula
-                <input
-                  name="cedula"
-                  value={form.cedula}
-                  onChange={onField}
-                  onBlur={() => void buscarCliente(form.cedula, form.telefono)}
-                  className="border border-slate-300 rounded px-2 py-2 text-sm font-mono"
-                />
-              </label>
-
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
-                Teléfono *
-                <input
-                  name="telefono"
-                  value={form.telefono}
-                  onChange={onField}
-                  onBlur={() => void buscarCliente(form.cedula, form.telefono)}
-                  required
-                  placeholder="Ej. 0981123456"
-                  className="border border-slate-300 rounded px-2 py-2 text-sm font-mono"
-                  autoComplete="tel"
-                />
-                {buscando ? (
-                  <span className="text-[11px] text-slate-400">Buscando comprador…</span>
-                ) : avisoBusqueda ? (
-                  <span className="text-[11px] text-emerald-700">{avisoBusqueda}</span>
+            <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+              {/* Cuerpo scrolleable */}
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+                {loadErr ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {loadErr}
+                  </div>
                 ) : null}
-              </label>
+                {submitErr ? (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                    {submitErr}
+                  </div>
+                ) : null}
+                {submitOk ? (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                    {submitOk}
+                  </div>
+                ) : null}
 
-              {/* Va impresa en el ticket y queda en la ficha del cliente. */}
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
-                Ciudad
-                <input
-                  name="ciudad"
-                  value={form.ciudad}
-                  onChange={onField}
-                  className="border border-slate-300 rounded px-2 py-2 text-sm"
-                  autoComplete="address-level2"
-                />
-              </label>
+                <Field label="Sorteo" required>
+                  <div className="relative">
+                    <select
+                      name="sorteo_id"
+                      value={form.sorteo_id}
+                      onChange={onField}
+                      required
+                      className={`${FIELD_INPUT} cursor-pointer appearance-none pr-10`}
+                    >
+                      <option value="">— Elegir —</option>
+                      {sorteos.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.nombre}
+                          {(s.estado ?? "") !== "activo" ? ` (${s.estado})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <svg
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </div>
+                </Field>
 
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
-                  Cantidad boletos *
-                  <input
-                    name="cantidad_boletos"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={form.cantidad_boletos}
-                    onChange={onField}
-                    required
-                    className="border border-slate-300 rounded px-2 py-2 text-sm"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-slate-600">
-                  Monto total (₲) *
-                  <input
-                    name="monto_total"
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={form.monto_total}
-                    onChange={onField}
-                    required
-                    className="border border-slate-300 rounded px-2 py-2 text-sm tabular-nums"
-                  />
-                </label>
+                {/* Sección: datos del comprador */}
+                <div className="space-y-4">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Comprador
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Nombre" required>
+                      <input
+                        name="nombre"
+                        value={form.nombre}
+                        onChange={onField}
+                        required
+                        className={FIELD_INPUT}
+                        autoComplete="given-name"
+                      />
+                    </Field>
+                    <Field label="Apellido" required>
+                      <input
+                        name="apellido"
+                        value={form.apellido}
+                        onChange={onField}
+                        required
+                        className={FIELD_INPUT}
+                        autoComplete="family-name"
+                      />
+                    </Field>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Cédula">
+                      <input
+                        name="cedula"
+                        value={form.cedula}
+                        onChange={onField}
+                        onBlur={() => void buscarCliente(form.cedula, form.telefono)}
+                        className={`${FIELD_INPUT} font-mono`}
+                      />
+                    </Field>
+                    <Field
+                      label="Teléfono"
+                      required
+                      hint={
+                        buscando ? (
+                          <span className="block text-[11px] text-slate-400">Buscando comprador…</span>
+                        ) : avisoBusqueda ? (
+                          <span className="block text-[11px] font-medium text-emerald-600">
+                            {avisoBusqueda}
+                          </span>
+                        ) : null
+                      }
+                    >
+                      <input
+                        name="telefono"
+                        value={form.telefono}
+                        onChange={onField}
+                        onBlur={() => void buscarCliente(form.cedula, form.telefono)}
+                        required
+                        placeholder="0981 123 456"
+                        className={`${FIELD_INPUT} font-mono`}
+                        autoComplete="tel"
+                        inputMode="tel"
+                      />
+                    </Field>
+                  </div>
+                  {/* Va impresa en el ticket y queda en la ficha del cliente. */}
+                  <Field label="Ciudad">
+                    <input
+                      name="ciudad"
+                      value={form.ciudad}
+                      onChange={onField}
+                      className={FIELD_INPUT}
+                      autoComplete="address-level2"
+                    />
+                  </Field>
+                </div>
+
+                {/* Sección: datos de la venta */}
+                <div className="space-y-4">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Venta
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Cantidad de boletos" required>
+                      <input
+                        name="cantidad_boletos"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={form.cantidad_boletos}
+                        onChange={onField}
+                        required
+                        className={FIELD_INPUT}
+                      />
+                    </Field>
+                    <Field label="Monto total" required>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                          ₲
+                        </span>
+                        <input
+                          name="monto_total"
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={form.monto_total}
+                          onChange={onField}
+                          required
+                          placeholder="0"
+                          className={`${FIELD_INPUT} pl-8 tabular-nums`}
+                        />
+                      </div>
+                    </Field>
+                  </div>
+                  <Field label="Método de pago">
+                    <input value="Efectivo" readOnly disabled className={FIELD_INPUT} />
+                  </Field>
+                  <Field label="Observación interna (opcional)">
+                    <textarea
+                      name="observacion_interna"
+                      value={form.observacion_interna}
+                      onChange={onField}
+                      rows={2}
+                      className={`${FIELD_INPUT} resize-none`}
+                    />
+                  </Field>
+                  <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 px-3.5 py-2.5 text-slate-700 transition hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      name="generar_ticket_png"
+                      checked={form.generar_ticket_png}
+                      onChange={onField}
+                      className="h-4 w-4 rounded border-slate-300 text-[#4FAEB2] focus:ring-[#4FAEB2]"
+                    />
+                    <span className="text-xs">
+                      Generar ticket PNG (si el sorteo tiene imagen configurada)
+                    </span>
+                  </label>
+                </div>
               </div>
 
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
-                Método de pago
-                <input
-                  value="Efectivo"
-                  readOnly
-                  className="border border-slate-200 bg-slate-50 rounded px-2 py-2 text-sm text-slate-700"
-                />
-              </label>
-
-              <label className="flex flex-col gap-1 text-xs text-slate-600">
-                Observación interna (opcional)
-                <textarea
-                  name="observacion_interna"
-                  value={form.observacion_interna}
-                  onChange={onField}
-                  rows={2}
-                  className="border border-slate-300 rounded px-2 py-2 text-sm"
-                />
-              </label>
-
-              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  name="generar_ticket_png"
-                  checked={form.generar_ticket_png}
-                  onChange={onField}
-                />
-                Generar ticket PNG (si el sorteo tiene imagen configurada)
-              </label>
-
-              <div className="flex flex-wrap gap-2 pt-2">
+              {/* Footer fijo */}
+              <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-6 py-3.5">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-200/60"
+                >
+                  Cancelar
+                </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-[#4FAEB2] text-white font-medium px-4 py-2 rounded-lg hover:bg-[#3F8E91] disabled:opacity-60"
+                  className="rounded-xl bg-[#4FAEB2] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3F8E91] disabled:opacity-60"
                 >
                   {loading ? "Guardando…" : "Guardar venta"}
-                </button>
-                <button
-                  type="button"
-                  className="text-slate-600 underline px-2 py-2"
-                  onClick={() => setOpen(false)}
-                >
-                  Cerrar
                 </button>
               </div>
             </form>
