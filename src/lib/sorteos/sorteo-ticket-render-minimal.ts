@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SorteoTicketRenderInput } from "@/lib/sorteos/sorteo-ticket-render";
 import { measureTicketTextWidth, svgTextAsPath } from "@/lib/sorteos/sorteo-ticket-text-path";
+import { fechaSorteoTexto } from "@/lib/sorteos/fecha-sorteo-texto";
 
 /**
  * Comprobante "minimal": el mismo formato que la boleta impresa.
@@ -157,29 +158,40 @@ export function buildSorteoTicketMinimalSvg(input: SorteoTicketRenderInput): str
     y += 12;
   }
 
-  /**
-   * Sin fecha, igual que la boleta impresa: el boleto se compra y se emite en el momento, asi
-   * que no le dice nada al comprador. Las dos boletas tienen que leerse igual, por eso salio de
-   * las dos y no de una sola.
-   */
-
   if (typeof input.montoTotal === "number" && input.montoTotal > 0) {
     linea(gs(input.montoTotal), { fs: 32, weight: 600, centrado: false, maxLines: 1 });
   }
 
+  /** Fecha del sorteo, como en el modelo del cliente: "Se sortea el: 27 de diciembre". */
+  const fechaTxt = fechaSorteoTexto(input.sorteoFecha);
+  if (fechaTxt) {
+    linea(`Se sortea el: ${fechaTxt}`, { fs: 32, weight: 700, centrado: false, maxLines: 2 });
+  }
+
   // ---------- Pie ----------
-  parts.push(
-    svgTextAsPath({
-      text: "¡Gracias por tu compra!",
-      x: WA / 2,
-      y: HA - PAD,
-      fontSize: 34,
-      weight: 600,
-      fill: ink,
-      textAnchor: "middle",
-      family: "mono",
-    })
-  );
+  /**
+   * Redes del negocio al pie, como en el modelo: "Seguinos en Instagram" y debajo los usuarios.
+   * Cuando hay redes cargadas reemplazan al "¡Gracias por tu compra!" (así lo mostró el cliente).
+   */
+  const ig = (input.instagram ?? "").trim();
+  if (ig) {
+    y += 24;
+    linea("Seguinos en Instagram", { fs: 30, weight: 600, centrado: true, maxLines: 1 });
+    linea(ig, { fs: 30, weight: 700, centrado: true, maxLines: 2 });
+  } else {
+    parts.push(
+      svgTextAsPath({
+        text: "¡Gracias por tu compra!",
+        x: WA / 2,
+        y: HA - PAD,
+        fontSize: 34,
+        weight: 600,
+        fill: ink,
+        textAnchor: "middle",
+        family: "mono",
+      })
+    );
+  }
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${WA}" height="${HA}" viewBox="0 0 ${WA} ${HA}">

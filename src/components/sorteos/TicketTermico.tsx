@@ -1,18 +1,10 @@
 "use client";
 
 import type { ConfigTicket, DatosTicket } from "@/lib/sorteos/ticket-impresion-tipos";
+import { fechaSorteoTexto } from "@/lib/sorteos/fecha-sorteo-texto";
 
 const PYG = new Intl.NumberFormat("es-PY");
 const gs = (n: number) => PYG.format(Math.round(n || 0)) + " Gs.";
-
-/**
- * Fecha del sorteo como DD/MM/AAAA, tomada de la parte de fecha del ISO (sin convertir zona
- * horaria), igual que el recordatorio de WhatsApp: así la boleta y el aviso dicen el mismo día.
- */
-const fmtFechaSorteo = (iso?: string | null): string => {
-  const m = String(iso ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
-};
 
 /**
  * Un boleto para impresora térmica.
@@ -73,7 +65,7 @@ export default function TicketTermico({
     .filter(Boolean)
     .join(" ");
 
-  const fechaSorteo = fmtFechaSorteo(datos.sorteo_fecha);
+  const fechaSorteo = fechaSorteoTexto(datos.sorteo_fecha);
 
   /*
    * En 80 mm el logo va a la par del QR, que mide 20 mm: topeado mas bajo quedaba visiblemente
@@ -140,10 +132,6 @@ export default function TicketTermico({
         EDICIÓN: {edicion.toUpperCase() || "—"}
       </div>
 
-      {fechaSorteo && (
-        <div className="font-bold leading-tight">FECHA DEL SORTEO: {fechaSorteo}</div>
-      )}
-
       <div className="font-bold leading-tight" style={{ fontSize: "1.6em" }}>
         NRO: {numeros.join("  ") || "—"}
       </div>
@@ -178,13 +166,18 @@ export default function TicketTermico({
         )}
       </div>
 
+      {fechaSorteo && (
+        <div className="font-bold leading-tight">Se sortea el: {fechaSorteo}</div>
+      )}
+
       {cfg.pie && (
         <div className="mt-1 whitespace-pre-line text-center leading-tight">{cfg.pie}</div>
       )}
 
       {cfg.instagram && (
-        <div className="mt-1 whitespace-pre-line text-center font-bold leading-tight">
-          {cfg.instagram}
+        <div className="mt-1 text-center leading-tight">
+          <div>Seguinos en Instagram</div>
+          <div className="whitespace-pre-line font-bold">{cfg.instagram}</div>
         </div>
       )}
 

@@ -402,6 +402,7 @@ export async function fetchSorteoRowTicketFieldsFromPg(
   nombre: string | null;
   ticket_delivery_mode: string | null;
   ticket_image_config: unknown;
+  fecha_sorteo: string | null;
 } | null> {
   const pool = getChatPostgresPool();
   if (!pool) return null;
@@ -411,8 +412,9 @@ export async function fetchSorteoRowTicketFieldsFromPg(
       nombre: string | null;
       ticket_delivery_mode: string | null;
       ticket_image_config: unknown;
+      fecha_sorteo: string | null;
     }>(
-      `SELECT nombre, ticket_delivery_mode, ticket_image_config
+      `SELECT nombre, ticket_delivery_mode, ticket_image_config, fecha_sorteo
        FROM ${schemaSql}.sorteos
        WHERE id = $1::uuid
        LIMIT 1`,

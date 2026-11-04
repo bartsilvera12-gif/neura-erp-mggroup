@@ -25,6 +25,10 @@ export type SorteoTicketRenderInput = {
   cupones: string[];
   /** ISO o texto localizable */
   fechaHora: string;
+  /** Fecha del sorteo (ISO). Se imprime como "Se sortea el: 27 de diciembre" en el minimal. */
+  sorteoFecha?: string | null;
+  /** Redes del negocio (Instagram). Sale al pie como "Seguinos en Instagram" + los usuarios. */
+  instagram?: string | null;
   config: SorteoTicketImageConfig;
   /** bytes PNG/JPEG/WebP o null */
   logoBytes: Buffer | null;

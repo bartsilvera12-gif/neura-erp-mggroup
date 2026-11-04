@@ -85,19 +85,25 @@ async function loadSorteoRowForTicket(input: {
   nombre: string;
   ticket_delivery_mode: SorteoTicketDeliveryMode | undefined;
   ticket_image_config: unknown;
+  fecha_sorteo: string | null;
 } | null> {
   const { data, error } = await input.supabase
     .from("sorteos")
-    .select("id, nombre, ticket_delivery_mode, ticket_image_config")
+    .select("id, nombre, ticket_delivery_mode, ticket_image_config, fecha_sorteo")
     .eq("id", input.sorteoId)
     .maybeSingle();
   if (!error && data) {
+    const d = data as {
+      nombre?: string;
+      ticket_delivery_mode?: string;
+      ticket_image_config?: unknown;
+      fecha_sorteo?: string | null;
+    };
     return {
-      nombre: String((data as { nombre?: string }).nombre ?? "").trim(),
-      ticket_delivery_mode: (data as { ticket_delivery_mode?: string }).ticket_delivery_mode as
-        | SorteoTicketDeliveryMode
-        | undefined,
-      ticket_image_config: (data as { ticket_image_config?: unknown }).ticket_image_config,
+      nombre: String(d.nombre ?? "").trim(),
+      ticket_delivery_mode: d.ticket_delivery_mode as SorteoTicketDeliveryMode | undefined,
+      ticket_image_config: d.ticket_image_config,
+      fecha_sorteo: d.fecha_sorteo != null ? String(d.fecha_sorteo) : null,
     };
   }
   const schema = await fetchDataSchemaForEmpresaId(input.empresaId);
@@ -115,6 +121,7 @@ async function loadSorteoRowForTicket(input: {
     nombre: String(pg.nombre ?? "").trim(),
     ticket_delivery_mode: pg.ticket_delivery_mode as SorteoTicketDeliveryMode | undefined,
     ticket_image_config: pg.ticket_image_config,
+    fecha_sorteo: pg.fecha_sorteo != null ? String(pg.fecha_sorteo) : null,
   };
 }
 
@@ -257,6 +264,24 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
 
   const config = normalizeTicketImageConfig(sorteoRow.ticket_image_config);
   const sorteoNombre = sorteoRow.nombre || "Sorteo";
+
+  /**
+   * Redes del negocio para el pie de la boleta ("Seguinos en Instagram" + usuarios). Viven en la
+   * config de ticket de la EMPRESA (misma que usa la impresora térmica), así se cargan una sola
+   * vez y salen igual en la boleta impresa y en la de WhatsApp. Sin config o sin columna, la
+   * boleta sale sin redes, como hasta ahora.
+   */
+  let instagram = "";
+  try {
+    const { data: cfgTicket } = await supabase
+      .from("sorteo_ticket_impresion")
+      .select("instagram")
+      .eq("empresa_id", empresaId)
+      .maybeSingle();
+    instagram = String((cfgTicket as { instagram?: string | null } | null)?.instagram ?? "").trim();
+  } catch {
+    /* columna/tabla ausente: sin redes */
+  }
 
   const { data: existList } = await db
     .from("sorteo_ticket_deliveries")
@@ -476,6 +501,8 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       numeroOrden: (normalized.numeroOrden || "").trim() || String(orderResult.numeroOrden),
       cupones: normalized.cupones,
       fechaHora,
+      sorteoFecha: sorteoRow.fecha_sorteo,
+      instagram,
       config,
       logoBytes: logoDl?.bytes ?? null,
       logoMime: logoDl?.mime ?? null,
