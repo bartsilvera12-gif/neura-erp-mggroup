@@ -80,10 +80,65 @@ function resolveSessionText(messageConfig: unknown): string | null {
   return text || null;
 }
 
-/** Sustitución simple de {{nombre}} (y {nombre}) por el nombre del contacto. */
-function renderText(template: string, vars: { nombre: string | null }): string {
+type BankData = {
+  titular: string;
+  entidad: string;
+  alias: string;
+  cuenta: string;
+};
+
+const EMPTY_BANK: BankData = { titular: "", entidad: "", alias: "", cuenta: "" };
+
+/**
+ * Lee los datos bancarios configurados en el canal de WhatsApp activo de la empresa.
+ * Se toma el primero encontrado (en la práctica hay uno por empresa). Si no hay canal
+ * o la config no existe, devuelve strings vacíos — los placeholders quedan sin texto.
+ */
+async function fetchBankDataForEmpresa(
+  supabase: AppSupabaseClient,
+  empresaId: string
+): Promise<BankData> {
+  try {
+    const { data, error } = await supabase
+      .from("chat_channels")
+      .select("config")
+      .eq("empresa_id", empresaId)
+      .eq("type", "whatsapp")
+      .eq("activo", true)
+      .limit(1);
+    if (error || !data || data.length === 0) return EMPTY_BANK;
+    const cfg = (data[0] as { config?: unknown }).config;
+    if (!cfg || typeof cfg !== "object") return EMPTY_BANK;
+    const cv = (cfg as Record<string, unknown>).comprobante_validation;
+    if (!cv || typeof cv !== "object") return EMPTY_BANK;
+    const dbe = (cv as Record<string, unknown>).datos_bancarios_esperados;
+    if (!dbe || typeof dbe !== "object") return EMPTY_BANK;
+    const d = dbe as Record<string, unknown>;
+    const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    return {
+      titular: s(d.titular),
+      entidad: s(d.banco),
+      alias: s(d.alias),
+      cuenta: s(d.numero_cuenta),
+    };
+  } catch {
+    return EMPTY_BANK;
+  }
+}
+
+/** Sustitución de placeholders soportados en el texto de la regla. */
+function renderText(
+  template: string,
+  vars: { nombre: string | null; banco: BankData }
+): string {
   const nombre = (vars.nombre ?? "").trim();
-  return template.replace(/\{\{?\s*nombre\s*\}?\}/gi, nombre);
+  const b = vars.banco;
+  return template
+    .replace(/\{\{?\s*nombre\s*\}?\}/gi, nombre)
+    .replace(/\{\{?\s*banco_titular\s*\}?\}/gi, b.titular)
+    .replace(/\{\{?\s*banco_entidad\s*\}?\}/gi, b.entidad)
+    .replace(/\{\{?\s*banco_alias\s*\}?\}/gi, b.alias)
+    .replace(/\{\{?\s*banco_cuenta\s*\}?\}/gi, b.cuenta);
 }
 
 /**
@@ -141,6 +196,7 @@ export async function runRecontactForEmpresa(params: {
 
   const supabase = params.supabase ?? (await getChatServiceClientForEmpresa(empresaId));
   const dataSchema = params.dataSchema ?? (await fetchDataSchemaForEmpresaId(empresaId));
+  const banco = await fetchBankDataForEmpresa(supabase, empresaId);
 
   const base: RecontactExecResult = {
     empresa_id: empresaId,
@@ -219,7 +275,7 @@ export async function runRecontactForEmpresa(params: {
         if (budget <= 0) break;
         budget -= 1;
 
-        const text = renderText(sessionText, { nombre: cand.contact_name });
+        const text = renderText(sessionText, { nombre: cand.contact_name, banco });
         try {
           const ctx = await resolveOutboundTextContextFromConversationId(supabase, cand.conversation_id, empresaId);
           const send = await sendOutboundTextMessage(ctx, text);
