@@ -51,6 +51,8 @@ export interface DatosBancariosEsperadosConfig {
   titular: string;
   numero_cuenta: string;
   alias: string;
+  /** Entidad / banco; se usa en los textos del flujo ({{banco_entidad}}). */
+  banco?: string;
 }
 
 export interface ComprobanteValidationSettings {
@@ -344,6 +346,7 @@ export function parseComprobanteValidationConfig(config: unknown): ComprobanteVa
       titular: clip(o.titular, 200),
       numero_cuenta: clip(o.numero_cuenta, 64),
       alias: clip(o.alias, 80),
+      banco: clip(o.banco, 120),
     };
   }
 

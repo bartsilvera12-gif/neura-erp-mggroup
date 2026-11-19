@@ -4,6 +4,7 @@ import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log"
 import { flowNodeColumns, markMissingFlowNodeColumns } from "@/lib/chat/flow-node-columns";
 import { buildMontoCalculadoVars } from "@/lib/chat/flow-monto-calculado";
 import { buildTelefonoVars } from "@/lib/chat/flow-telefono-vars";
+import { buildBancoVars } from "@/lib/chat/flow-banco-vars";
 import {
   buildCaptureConfirmation,
   checkFlowInput,
@@ -2291,9 +2292,10 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       "toDigits" in ctxSend ? ctxSend.toDigits : null,
       flowVarsConMerge
     );
+    const bancoVars = await buildBancoVars({ supabase, channelId: state.channel_id });
     const flowVars: Record<string, string> = { ...flowVarsConMerge };
     /** Lo automático solo rellena huecos: si el flujo ya trae el dato, ese manda. */
-    for (const [clave, valor] of Object.entries({ ...montoVars, ...telefonoVars })) {
+    for (const [clave, valor] of Object.entries({ ...montoVars, ...telefonoVars, ...bancoVars })) {
       if (!String(flowVars[clave] ?? "").trim()) flowVars[clave] = valor;
     }
     const sumV = summarizeFlowDataForTrace(flowVars);

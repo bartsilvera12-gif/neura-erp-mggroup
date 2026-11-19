@@ -270,6 +270,23 @@ export function ComprobanteValidationPanelDatosBancarios({ value: s, onChange }:
             placeholder="Ej. Razón social o nombre"
           />
         </div>
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Entidad / banco</label>
+          <input
+            type="text"
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+            value={s.datos_bancarios_esperados.banco ?? ""}
+            onChange={(e) =>
+              set({
+                datos_bancarios_esperados: {
+                  ...s.datos_bancarios_esperados,
+                  banco: e.target.value,
+                },
+              })
+            }
+            placeholder="Ej. Banco GNB"
+          />
+        </div>
         <div>
           <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nº cuenta esperada</label>
           <input
