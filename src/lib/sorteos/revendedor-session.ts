@@ -136,6 +136,10 @@ export type RevendedorSaldo = {
   totalVentas: number;
   /** Plata total vendida (efectivo y transferencia), sin las rechazadas. */
   montoVendido: number;
+  /** Ventas, boletos y monto del día de hoy (sin rechazadas). */
+  ventasHoy: number;
+  boletosHoy: number;
+  montoHoy: number;
 };
 
 /**
@@ -215,6 +219,9 @@ export async function getRevendedorSaldo(ctx: RevendedorPosContext): Promise<Rev
       saldoARendir: 0,
       totalVentas: 0,
       montoVendido: 0,
+      ventasHoy: 0,
+      boletosHoy: 0,
+      montoHoy: 0,
     };
   }
   const qtEnt = quoteSchemaTable(sp.schema, "sorteo_entradas");
@@ -240,6 +247,17 @@ export async function getRevendedorSaldo(ctx: RevendedorPosContext): Promise<Rev
     `SELECT COALESCE(SUM(monto),0)::numeric AS rendido FROM ${qtRen} WHERE revendedor_id = $1::uuid`,
     [ctx.revendedorId]
   );
+  /** Solo el día de hoy (hora de Paraguay), para el resumen del Punto de venta. */
+  const hoy = await sp.pool.query(
+    `SELECT COALESCE(SUM(cantidad_boletos),0)::int AS boletos,
+            COUNT(*)::int AS ventas,
+            COALESCE(SUM(monto_total),0)::numeric AS monto
+       FROM ${qtEnt}
+      WHERE revendedor_id = $1::uuid AND estado_pago <> 'rechazado'
+        AND (created_at AT TIME ZONE 'America/Asuncion')::date
+            = (now() AT TIME ZONE 'America/Asuncion')::date`,
+    [ctx.revendedorId]
+  );
   const boletos = Number(vend.rows?.[0]?.boletos ?? 0) || 0;
   const efectivo = Number(vend.rows?.[0]?.efectivo ?? 0) || 0;
   const rendido = Number(rend.rows?.[0]?.rendido ?? 0) || 0;
@@ -249,5 +267,8 @@ export async function getRevendedorSaldo(ctx: RevendedorPosContext): Promise<Rev
     saldoARendir: Math.max(0, efectivo - rendido),
     totalVentas: Number(vend.rows?.[0]?.ventas ?? 0) || 0,
     montoVendido: Number(vend.rows?.[0]?.monto ?? 0) || 0,
+    ventasHoy: Number(hoy.rows?.[0]?.ventas ?? 0) || 0,
+    boletosHoy: Number(hoy.rows?.[0]?.boletos ?? 0) || 0,
+    montoHoy: Number(hoy.rows?.[0]?.monto ?? 0) || 0,
   };
 }

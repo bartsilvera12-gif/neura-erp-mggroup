@@ -59,8 +59,9 @@ export default async function RevendedorPosPage({
         boletosVendidos: saldo.boletosVendidos,
         cupoRestante: saldo.cupoRestante,
         saldoARendir: saldo.saldoARendir,
-        totalVentas: saldo.totalVentas,
-        montoVendido: saldo.montoVendido,
+        totalVentas: saldo.ventasHoy,
+        boletosHoy: saldo.boletosHoy,
+        montoVendido: saldo.montoHoy,
         ultimasVentas,
       }}
     />
