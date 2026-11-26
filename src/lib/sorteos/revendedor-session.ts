@@ -132,6 +132,10 @@ export type RevendedorSaldo = {
   boletosVendidos: number;
   cupoRestante: number | null;
   saldoARendir: number;
+  /** Cantidad de ventas (órdenes) del vendedor, sin las rechazadas. */
+  totalVentas: number;
+  /** Plata total vendida (efectivo y transferencia), sin las rechazadas. */
+  montoVendido: number;
 };
 
 /**
@@ -204,7 +208,15 @@ export async function getRevendedorUltimasVentas(
 
 export async function getRevendedorSaldo(ctx: RevendedorPosContext): Promise<RevendedorSaldo> {
   const sp = schemaAndPool();
-  if (!sp) return { boletosVendidos: 0, cupoRestante: ctx.cupoBoletos, saldoARendir: 0 };
+  if (!sp) {
+    return {
+      boletosVendidos: 0,
+      cupoRestante: ctx.cupoBoletos,
+      saldoARendir: 0,
+      totalVentas: 0,
+      montoVendido: 0,
+    };
+  }
   const qtEnt = quoteSchemaTable(sp.schema, "sorteo_entradas");
   const qtRen = quoteSchemaTable(sp.schema, "sorteo_revendedor_rendiciones");
 
@@ -217,6 +229,8 @@ export async function getRevendedorSaldo(ctx: RevendedorPosContext): Promise<Rev
    */
   const vend = await sp.pool.query(
     `SELECT COALESCE(SUM(cantidad_boletos),0)::int AS boletos,
+            COUNT(*)::int AS ventas,
+            COALESCE(SUM(monto_total),0)::numeric AS monto,
             COALESCE(SUM(monto_total) FILTER (WHERE pago_metodo = 'efectivo'),0)::numeric AS efectivo
        FROM ${qtEnt}
       WHERE revendedor_id = $1::uuid AND estado_pago <> 'rechazado'`,
@@ -233,5 +247,7 @@ export async function getRevendedorSaldo(ctx: RevendedorPosContext): Promise<Rev
     boletosVendidos: boletos,
     cupoRestante: ctx.cupoBoletos == null ? null : Math.max(0, ctx.cupoBoletos - boletos),
     saldoARendir: Math.max(0, efectivo - rendido),
+    totalVentas: Number(vend.rows?.[0]?.ventas ?? 0) || 0,
+    montoVendido: Number(vend.rows?.[0]?.monto ?? 0) || 0,
   };
 }

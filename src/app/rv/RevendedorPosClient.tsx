@@ -13,6 +13,8 @@ type Props = {
   boletosVendidos: number;
   cupoRestante: number | null;
   saldoARendir: number;
+  totalVentas?: number;
+  montoVendido?: number;
   /**
    * Últimas ventas del vendedor, para reimprimir.
    *
@@ -320,6 +322,21 @@ export default function RevendedorPosClient(props: Props) {
         <div className="text-[11px] opacity-70 mt-0.5">
           {props.numeroVendedor != null ? `Vendedor N.º ${props.numeroVendedor} · ` : "Vendedor: "}
           {props.revendedorNombre}
+        </div>
+        {/* Acumulado del vendedor, para saber cuánto lleva vendido sin salir del punto de venta. */}
+        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl bg-white/10 px-2 py-2">
+            <div className="text-[10px] uppercase opacity-70">Total de ventas</div>
+            <div className="text-base font-extrabold">{props.totalVentas ?? 0}</div>
+          </div>
+          <div className="rounded-xl bg-white/10 px-2 py-2">
+            <div className="text-[10px] uppercase opacity-70">Boletas vendidas</div>
+            <div className="text-base font-extrabold">{props.boletosVendidos}</div>
+          </div>
+          <div className="rounded-xl bg-white/10 px-2 py-2">
+            <div className="text-[10px] uppercase opacity-70">Monto total vendido</div>
+            <div className="text-sm font-extrabold">{gs(props.montoVendido ?? 0)}</div>
+          </div>
         </div>
       </header>
 
