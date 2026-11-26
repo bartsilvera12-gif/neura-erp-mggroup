@@ -217,7 +217,7 @@ export default function RevendedorPosClient(props: Props) {
       setResult(json.data);
       /** Venta confirmada: directo a la pantalla de imprimir la boleta, sin pasos intermedios. */
       if (json.data.entrada_id) {
-        window.location.assign(`/ticket/${json.data.entrada_id}`);
+        window.location.assign(`/ticket/${json.data.entrada_id}?imprimir=1`);
       }
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Error al registrar la venta.");
@@ -323,9 +323,7 @@ export default function RevendedorPosClient(props: Props) {
         </div>
       </header>
 
-      <PasosBarra paso={paso} />
-
-      <div className="flex-1 px-4 pb-6 space-y-3">
+      <div className="flex-1 px-4 py-3 space-y-3">
         {!props.sorteoActivo && (
           <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-lg px-3 py-2">
             El sorteo no está activo. No se pueden registrar ventas.
@@ -337,7 +335,8 @@ export default function RevendedorPosClient(props: Props) {
           </div>
         )}
 
-        {paso === "boletos" && (
+        {/* Todo en una sola pantalla: boletos, datos, pago y «Confirmar e imprimir». */}
+        {(
           <>
             <div className="bg-white rounded-2xl shadow-sm p-3 text-center">
               <div className="text-[10px] uppercase text-slate-400">Precio por boleto</div>
@@ -369,59 +368,11 @@ export default function RevendedorPosClient(props: Props) {
               />
             </Field>
 
-            <TotalCard total={total} />
-
-            <button
-              type="button"
-              onClick={reservar}
-              disabled={!props.sorteoActivo}
-              className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl py-4 font-bold text-base"
-            >
-              RESERVAR {qty > 0 ? `${qty} BOLETO${qty === 1 ? "" : "S"}` : ""}
-            </button>
-
-            {/*
-              Reimprimir sin volver a vender.
-
-              El botón de imprimir solo aparecía en la pantalla que sigue a la venta, y esa se
-              pierde al volver atrás o recargar. Si el papel salió mal o la impresora estaba
-              apagada, la única forma de recuperar el botón era cargar la venta de nuevo — y
-              entraba duplicada, con otros números y cobrada dos veces.
-            */}
-            {ultimasVentas.length > 0 ? (
-              <div className="rounded-2xl bg-white p-3 shadow-sm">
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  Reimprimir una venta
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {ultimasVentas.map((v) => (
-                    <div key={v.entradaId} className="flex items-center justify-between gap-3 py-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-slate-800">
-                          {v.cliente || "Sin nombre"}
-                        </div>
-                        <div className="truncate font-mono text-[11px] text-slate-500">
-                          {v.cupones.join("  ") || "—"}
-                        </div>
-                      </div>
-                      <a
-                        href={`/ticket/${v.entradaId}`}
-                        className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
-                      >
-                        🖨 Imprimir
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
           </>
         )}
 
-        {paso === "cliente" && (
+        {(
           <>
-            <ResumenBoletos qty={qty} total={total} onEditar={() => setPaso("boletos")} />
-
             <Field label="Documento (C.I., RUC o pasaporte)">
               <div className="flex gap-2">
                 {/*
@@ -521,26 +472,53 @@ export default function RevendedorPosClient(props: Props) {
 
             <TotalCard total={total} />
 
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPaso("boletos")}
-                disabled={submitting}
-                className="rounded-xl border border-slate-300 bg-white px-5 py-4 font-semibold text-slate-700 disabled:opacity-50"
-              >
-                Atrás
-              </button>
-              <button
-                type="button"
-                onClick={() => void confirmar()}
-                disabled={submitting || !props.sorteoActivo}
-                className="flex-1 rounded-xl bg-slate-900 py-4 text-base font-bold text-white hover:bg-slate-800 disabled:opacity-50"
-              >
-                {submitting ? "Registrando…" : "CONFIRMAR E IMPRIMIR"}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => void confirmar()}
+              disabled={submitting || !props.sorteoActivo}
+              className="w-full rounded-xl bg-slate-900 py-4 text-base font-bold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {submitting ? "Registrando…" : "CONFIRMAR E IMPRIMIR"}
+            </button>
+
+            {/*
+              Reimprimir sin volver a vender.
+
+              El botón de imprimir solo aparecía en la pantalla que sigue a la venta, y esa se
+              pierde al volver atrás o recargar. Si el papel salió mal o la impresora estaba
+              apagada, la única forma de recuperar el botón era cargar la venta de nuevo — y
+              entraba duplicada, con otros números y cobrada dos veces.
+            */}
+            {ultimasVentas.length > 0 ? (
+              <div className="rounded-2xl bg-white p-3 shadow-sm">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Reimprimir una venta
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {ultimasVentas.map((v) => (
+                    <div key={v.entradaId} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-800">
+                          {v.cliente || "Sin nombre"}
+                        </div>
+                        <div className="truncate font-mono text-[11px] text-slate-500">
+                          {v.cupones.join("  ") || "—"}
+                        </div>
+                      </div>
+                      <a
+                        href={`/ticket/${v.entradaId}`}
+                        className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+                      >
+                        🖨 Imprimir
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </>
         )}
+
       </div>
     </div>
   );

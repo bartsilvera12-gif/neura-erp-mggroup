@@ -57,6 +57,17 @@ export default function TicketPage() {
     };
   }, [id]);
 
+  /**
+   * Recién hecha la venta (`?imprimir=1`) abre solo el diálogo de impresión, así el vendedor no
+   * tiene que tocar otro botón. Al reimprimir desde la lista no se manda el parámetro.
+   */
+  useEffect(() => {
+    if (!datos) return;
+    if (new URLSearchParams(window.location.search).get("imprimir") !== "1") return;
+    const t = setTimeout(() => window.print(), 400);
+    return () => clearTimeout(t);
+  }, [datos]);
+
   const copias = Math.max(1, cfg.copias);
 
   /**
