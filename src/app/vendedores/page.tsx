@@ -144,11 +144,28 @@ export default function VendedoresPage() {
   }
 
   async function copiar(texto: string, id: string) {
+    let ok = false;
     try {
       await navigator.clipboard.writeText(texto);
-      setCopiado(id);
-      window.setTimeout(() => setCopiado(null), 1500);
+      ok = true;
     } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = texto;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        ok = false;
+      }
+    }
+    if (ok) {
+      setCopiado(id);
+      window.setTimeout(() => setCopiado(null), 4000);
+    } else {
       setErr("No se pudo copiar. Seleccioná el link y copialo a mano.");
     }
   }
