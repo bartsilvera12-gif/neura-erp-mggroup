@@ -1562,6 +1562,8 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         .update({
           active_flow_session_id: null,
           flow_current_node: null,
+          /** Compra finalizada: el bot no responde en este chat durante 3 horas ("gracias", "ok"…). */
+          bot_paused_until: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq("id", state.id)

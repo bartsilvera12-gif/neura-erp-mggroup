@@ -50,7 +50,7 @@ type SaleResult = {
  * Partida en pasos, lo primero que queda fijo es la cantidad con su total —que es lo que el
  * comprador pregunta— y recién después se cargan sus datos.
  */
-type Paso = "boletos" | "cliente" | "pago";
+type Paso = "boletos" | "cliente";
 
 const PYG = new Intl.NumberFormat("es-PY");
 function gs(n: number): string {
@@ -180,13 +180,6 @@ export default function RevendedorPosClient(props: Props) {
     setPaso("cliente");
   }
 
-  function irAlPago() {
-    setErr(null);
-    if (!nombre.trim()) return setErr("Ingresá el nombre del comprador.");
-    if (!telefono.trim()) return setErr("Ingresá el teléfono.");
-    setPaso("pago");
-  }
-
   async function confirmar() {
     setErr(null);
     if (!props.sorteoActivo) {
@@ -222,6 +215,10 @@ export default function RevendedorPosClient(props: Props) {
         throw new Error(json.error || "No se pudo registrar la venta.");
       }
       setResult(json.data);
+      /** Venta confirmada: directo a la pantalla de imprimir la boleta, sin pasos intermedios. */
+      if (json.data.entrada_id) {
+        window.location.assign(`/ticket/${json.data.entrada_id}`);
+      }
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Error al registrar la venta.");
     } finally {
@@ -498,38 +495,6 @@ export default function RevendedorPosClient(props: Props) {
               />
             </Field>
 
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPaso("boletos")}
-                className="rounded-xl border border-slate-300 bg-white px-5 py-4 font-semibold text-slate-700"
-              >
-                Atrás
-              </button>
-              <button
-                type="button"
-                onClick={irAlPago}
-                className="flex-1 rounded-xl bg-slate-900 py-4 text-base font-bold text-white hover:bg-slate-800"
-              >
-                CONTINUAR AL PAGO
-              </button>
-            </div>
-          </>
-        )}
-
-        {paso === "pago" && (
-          <>
-            <div className="rounded-2xl bg-white p-4 shadow-sm">
-              <div className="mb-2 text-xs font-semibold uppercase text-slate-400">Resumen</div>
-              <div className="space-y-1 text-sm text-slate-800">
-                <Row k="Comprador" v={nombre || "—"} />
-                {documento ? <Row k="Documento" v={documento} /> : null}
-                <Row k="Teléfono" v={telefono || "—"} />
-                {ciudad ? <Row k="Ciudad" v={ciudad} /> : null}
-                <Row k="Boletos" v={`${qty}`} />
-              </div>
-            </div>
-
             <Field label="Forma de pago">
               <div className="grid grid-cols-2 gap-2">
                 {(["efectivo", "transferencia"] as const).map((m) => (
@@ -559,7 +524,7 @@ export default function RevendedorPosClient(props: Props) {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => setPaso("cliente")}
+                onClick={() => setPaso("boletos")}
                 disabled={submitting}
                 className="rounded-xl border border-slate-300 bg-white px-5 py-4 font-semibold text-slate-700 disabled:opacity-50"
               >
@@ -585,8 +550,7 @@ export default function RevendedorPosClient(props: Props) {
 function PasosBarra({ paso }: { paso: Paso }) {
   const pasos: { id: Paso; n: number; label: string }[] = [
     { id: "boletos", n: 1, label: "Boletos" },
-    { id: "cliente", n: 2, label: "Cliente" },
-    { id: "pago", n: 3, label: "Pago" },
+    { id: "cliente", n: 2, label: "Datos y pago" },
   ];
   const actual = pasos.find((p) => p.id === paso)?.n ?? 1;
   return (

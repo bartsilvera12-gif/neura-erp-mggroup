@@ -983,6 +983,25 @@ export async function processInboundWebhookValue(
         }
       }
 
+      /**
+       * Pausa del bot tras una compra finalizada (3 h): el mensaje ya quedó guardado, pero no se
+       * dispara bienvenida, reinicio de flujo ni respuesta automática ("gracias", "ok"…).
+       */
+      if (inboundMessageAlreadyPersisted) {
+        const { data: pausaRow } = await supabase
+          .from("chat_conversations")
+          .select("bot_paused_until")
+          .eq("id", conversationId)
+          .eq("empresa_id", empresaId)
+          .maybeSingle();
+        const pausadoHasta = (pausaRow as { bot_paused_until?: string | null } | null)
+          ?.bot_paused_until;
+        if (pausadoHasta && new Date(pausadoHasta).getTime() > Date.now()) {
+          console.info(WH_MSG, "bot_paused_after_purchase", { conversationId, pausadoHasta });
+          continue;
+        }
+      }
+
       await ensureCentralChatConversationMirror({
         pool: pool ?? null,
         tenantDataSchema,

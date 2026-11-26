@@ -109,6 +109,13 @@ const MENU_STRUCTURE: MenuItem[] = [
     icon: ListChecks,
   },
   {
+    key: "compras-pendientes",
+    slug: "conversaciones",
+    label: "Compras sin finalizar",
+    href: "/dashboard/compras-pendientes",
+    icon: ListChecks,
+  },
+  {
     key: "monitoreo",
     slug: "monitoreo",
     label: "Monitoreo",
